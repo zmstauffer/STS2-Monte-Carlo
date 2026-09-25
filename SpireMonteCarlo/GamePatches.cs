@@ -727,13 +727,7 @@ public static class GamePatches
 			RunOutcome runOutcome = (!__0 ? RunOutcome.Loss : RunOutcome.Win);
 			Plugin.Overlay?.ShowRunSummary(runOutcome, num, num2);
 			Plugin.RunTracker?.EndRun(runOutcome, num, num2);
-			// ApplyCachedStats: recompute local + merge cached cloud data once (no double-counting)
-			if (Plugin.CloudSync != null)
-				Plugin.CloudSync.ApplyCachedStats();
-			else
-				Plugin.LocalStats?.RecomputeAll();
-			if (Plugin.Overlay?.Settings?.CloudSyncEnabled ?? false)
-				Task.Run(() => Plugin.CloudSync?.UploadPendingRuns());
+			Plugin.LocalStats?.RecomputeAll();
 			Plugin.Log($"Run ended: {runOutcome} on floor {num} (act {num2})");
 		}
 		catch (Exception value)
@@ -822,11 +816,6 @@ public static class GamePatches
 		{
 			Plugin.Log($"WARN: Failed to patch {targetType.Name}.{methodName}: {ex.Message}");
 		}
-	}
-
-	public static void ForceNotModded(ref bool __result)
-	{
-		__result = false;
 	}
 
 	public static void OnCardSelected(object __0)

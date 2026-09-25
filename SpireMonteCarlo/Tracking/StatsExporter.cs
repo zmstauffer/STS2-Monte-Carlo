@@ -69,15 +69,6 @@ public static class StatsExporter
 		if (payload.RelicStats != null && payload.RelicStats.Count > 0)
 			db.MergeCommunityRelicStats(payload.RelicStats);
 
-		// Update CloudSync cache so run-end remerge uses the imported data
-		if (Plugin.CloudSync != null)
-		{
-			if (payload.CardStats != null && payload.CardStats.Count > 0)
-				Plugin.CloudSync.CachedCardStats = payload.CardStats;
-			if (payload.RelicStats != null && payload.RelicStats.Count > 0)
-				Plugin.CloudSync.CachedRelicStats = payload.RelicStats;
-		}
-
 		return (cards, relics);
 	}
 

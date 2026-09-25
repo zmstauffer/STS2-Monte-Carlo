@@ -1307,7 +1307,6 @@ public class OverlayManager
 		AddSettingsToggle(menuVBox, "Event Advice", _settings.ShowEventAdvice, () => { _settings.ShowEventAdvice = !_settings.ShowEventAdvice; _settings.Save(); RegenerateAdvice(); RefreshSettingsMenu(); });
 		AddSettingsToggle(menuVBox, "Map Advice", _settings.ShowMapAdvice, () => { _settings.ShowMapAdvice = !_settings.ShowMapAdvice; _settings.Save(); RegenerateAdvice(); RefreshSettingsMenu(); });
 		AddSettingsToggle(menuVBox, "Combat Advice", _settings.ShowCombatAdvice, () => { _settings.ShowCombatAdvice = !_settings.ShowCombatAdvice; _settings.Save(); RegenerateAdvice(); RefreshSettingsMenu(); });
-		AddSettingsToggle(menuVBox, "Cloud Sync", _settings.CloudSyncEnabled, () => { _settings.CloudSyncEnabled = !_settings.CloudSyncEnabled; _settings.Save(); RefreshSettingsMenu(); });
 		AddSettingsToggle(menuVBox, "Potion Advice", _showPotionAdvice, () => { _showPotionAdvice = !_showPotionAdvice; _settings.ShowPotionAdvice = _showPotionAdvice; _settings.Save(); Rebuild(); RefreshSettingsMenu(); });
 
 		// Opacity section
@@ -1679,16 +1678,6 @@ public class OverlayManager
 				_content.RemoveChild(child);
 				child.QueueFree();
 			}
-		}
-		// Update notification banner
-		if (Plugin.LatestVersion != null)
-		{
-			Label updateLbl = new Label();
-			updateLbl.Text = $"\u26a0 Update Available: v{Plugin.LatestVersion}";
-			ApplyFont(updateLbl, _fontBold);
-			updateLbl.AddThemeFontSizeOverride("font_size", 14);
-			updateLbl.AddThemeColorOverride("font_color", ClrExpensive);
-			_content.AddChild(updateLbl, forceReadableName: false, Node.InternalMode.Disabled);
 		}
 		bool hasCards = _currentCards != null && _currentCards.Count > 0;
 		bool hasRelics = _currentRelics != null && _currentRelics.Count > 0;

@@ -15,19 +15,15 @@ namespace SpireMonteCarlo;
 [ModInitializer("Init")]
 public static class Plugin
 {
-	public const string ModName = "Qu'est-ce Spire?";
+	public const string ModName = "Spire Monte Carlo";
 
-	public const string ModVersion = "0.7.0";
+	public const string ModVersion = "0.1.0";
 
 	public const string HarmonyId = "com.spiremontecarlo.mod";
 
 	private static Harmony _harmony;
 
 	private static bool _initialized;
-
-	private static volatile bool _backgroundInitDone;
-
-	public static bool IsBackgroundInitDone => _backgroundInitDone;
 
 	public static string PluginFolder { get; private set; }
 
@@ -51,15 +47,9 @@ public static class Plugin
 
 	public static CardPropertyScorer CardPropertyScorer { get; private set; }
 
-	public static CloudSync CloudSync { get; private set; }
-
 	public static EventAdvisor EventAdvisor { get; private set; }
 
 	public static EnemyAdvisor EnemyAdvisor { get; private set; }
-
-	public static string LatestVersion { get; set; }
-
-	public static string UpdateUrl { get; set; }
 
 	public static OverlayManager Overlay { get; set; }
 
@@ -100,97 +90,11 @@ public static class Plugin
 		AdaptiveScorer = new AdaptiveScorer(RunDatabase);
 		EventAdvisor = new EventAdvisor(AppDataFolder);
 		EnemyAdvisor = new EnemyAdvisor(AppDataFolder);
-		CloudSync = new CloudSync(RunDatabase, RunTracker.PlayerId);
-		var overlaySettings = OverlaySettings.Load();
-		if (overlaySettings.CloudSyncEnabled)
-		{
-			// Download community stats and merge on top of local+imported data.
-			// DownloadCommunityStats calls ApplyCachedStats which recomputes local
-			// then merges cloud — this preserves correct totals.
-			Task.Run(async () =>
-			{
-				try
-				{
-					await CloudSync.DownloadCommunityStats();
-					// Re-apply game history import after cloud merge
-					new GameDataImporter(RunDatabase).ImportAll();
-				}
-				catch (Exception ex)
-				{
-					Log("Background cloud sync error: " + ex.Message);
-				}
-				finally
-				{
-					_backgroundInitDone = true;
-				}
-			});
-		}
-		else
-		{
-			_backgroundInitDone = true;
-		}
 		_harmony = new Harmony(HarmonyId);
 		_harmony.PatchAll(typeof(GamePatches).Assembly);
 		GamePatches.ApplyManualPatches(_harmony);
-		// Force main profile: set IsRunningModded = false directly (v0.99.1 added a setter)
-		var isModdedProp = typeof(UserDataPathProvider).GetProperty("IsRunningModded", BindingFlags.Static | BindingFlags.Public);
-		if (isModdedProp?.GetSetMethod() != null)
-		{
-			isModdedProp.SetValue(null, false);
-			Log("Set IsRunningModded = false directly — using main profile.");
-		}
-		// Also patch the getter so any future reads return false
-		MethodInfo methodInfo = isModdedProp?.GetGetMethod();
-		if (methodInfo != null)
-		{
-			MethodInfo method = typeof(GamePatches).GetMethod("ForceNotModded", BindingFlags.Static | BindingFlags.Public);
-			_harmony.Patch(methodInfo, null, new HarmonyMethod(method));
-			Log("Patched IsRunningModded getter to false.");
-		}
 		Log("Harmony patches applied.");
-		// Fire-and-forget version check
-		Task.Run(async () =>
-		{
-			try
-			{
-				using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-				var resp = await http.GetStringAsync("https://questcespire-api.questcespire.workers.dev/api/version");
-				var ver = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, string>>(resp);
-				if (ver != null && ver.TryGetValue("latest", out var latest))
-				{
-					if (CompareVersions(ModVersion, latest) < 0)
-					{
-						LatestVersion = latest;
-						ver.TryGetValue("release_url", out var url);
-						UpdateUrl = url;
-						Log($"Update available: v{latest} (current: v{ModVersion})");
-					}
-					else
-					{
-						Log($"Version check: up to date (v{ModVersion})");
-					}
-				}
-			}
-			catch (Exception ex)
-			{
-				Log($"Version check failed: {ex.Message}");
-			}
-		});
 		Log($"{ModName} initialized successfully. Waiting for scene tree...");
-	}
-
-	internal static int CompareVersions(string a, string b)
-	{
-		var pa = a.Split('.');
-		var pb = b.Split('.');
-		int len = Math.Max(pa.Length, pb.Length);
-		for (int i = 0; i < len; i++)
-		{
-			int va = i < pa.Length && int.TryParse(pa[i], out var x) ? x : 0;
-			int vb = i < pb.Length && int.TryParse(pb[i], out var y) ? y : 0;
-			if (va != vb) return va.CompareTo(vb);
-		}
-		return 0;
 	}
 
 	private static volatile StreamWriter _logWriter;
