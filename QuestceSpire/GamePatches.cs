@@ -333,8 +333,9 @@ public static class GamePatches
 			string cardId = null;
 			if (__instance != null)
 			{
-				var cardProp = __instance.GetType().GetProperty("Card") ?? __instance.GetType().GetProperty("CardModel");
-				var cardObj = cardProp?.GetValue(__instance);
+				// MerchantCardEntry.CreationResult.Card is the resolved CardModel
+				var creationResult = __instance.GetType().GetProperty("CreationResult")?.GetValue(__instance);
+				var cardObj = creationResult?.GetType().GetProperty("Card")?.GetValue(creationResult);
 				if (cardObj != null)
 				{
 					var idObj = cardObj.GetType().GetProperty("Id")?.GetValue(cardObj);

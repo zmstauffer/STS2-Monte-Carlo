@@ -269,7 +269,7 @@ public static class GameStateReader
 					if (cardModel != null)
 					{
 						CardInfo info = CardModelToInfo(cardModel);
-						info.Price = ReadMerchantPrice(item, player);
+						info.Price = ReadMerchantPrice(item);
 						list.Add(info);
 					}
 				}
@@ -304,7 +304,7 @@ public static class GameStateReader
 					if (model != null)
 					{
 						RelicInfo info = RelicModelToInfo(model);
-						info.Price = ReadMerchantPrice(item, player);
+						info.Price = ReadMerchantPrice(item);
 						list.Add(info);
 					}
 				}
@@ -322,7 +322,8 @@ public static class GameStateReader
 		var list = new List<CardInfo>();
 		try
 		{
-			// Try player.{prop} first, then player.Creature.{prop}
+			// Try player.{prop}, then player.Creature.{prop}, then player.PlayerCombatState.{prop}
+			// (Hand/DrawPile/DiscardPile live on PlayerCombatState, only non-null during combat)
 			object pile = null;
 			var prop = player.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 			if (prop != null) pile = prop.GetValue(player);
@@ -330,6 +331,11 @@ public static class GameStateReader
 			{
 				prop = player.Creature.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 				if (prop != null) pile = prop.GetValue(player.Creature);
+			}
+			if (pile == null && player.PlayerCombatState != null)
+			{
+				prop = player.PlayerCombatState.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				if (prop != null) pile = prop.GetValue(player.PlayerCombatState);
 			}
 			if (pile is CardPile cardPile && cardPile.Cards != null)
 			{
@@ -398,19 +404,12 @@ public static class GameStateReader
 		return cardInfo;
 	}
 
-	private static int ReadMerchantPrice(object entry, Player player)
+	private static int ReadMerchantPrice(object entry)
 	{
 		try
 		{
-			// MerchantCardEntry and MerchantRelicEntry both have GetPrice(Player)
-			var method = entry.GetType().GetMethod("GetPrice", BindingFlags.Instance | BindingFlags.Public);
-			if (method != null)
-			{
-				object result = method.Invoke(entry, new object[] { player });
-				if (result is int price) return price;
-			}
-			// Fallback: try Price property
-			var prop = entry.GetType().GetProperty("Price", BindingFlags.Instance | BindingFlags.Public);
+			// MerchantEntry.Cost already applies Hook.ModifyMerchantPrice
+			var prop = entry.GetType().GetProperty("Cost", BindingFlags.Instance | BindingFlags.Public);
 			if (prop != null)
 			{
 				object result = prop.GetValue(entry);
@@ -464,7 +463,7 @@ public static class GameStateReader
 					continue;
 
 				var info = PotionModelToInfo(potionModel);
-				info.Price = ReadMerchantPrice(entry, player);
+				info.Price = ReadMerchantPrice(entry);
 				list.Add(info);
 			}
 		}
