@@ -36,6 +36,9 @@ function Copy-Tree($from, $to, [string[]]$extra = @()) {
 # Mod folder: the build output minus AppData\ and the deps/runtimeconfig JSON (the game loads the DLL by path and ignores them).
 Copy-Tree $out $modDir @('/XD', (Join-Path $out 'AppData'), '/XF', '*.deps.json', '*.runtimeconfig.json')
 
+# The game's loader doesn't use the mod's deps.json, so SQLite's native library must sit next to the managed DLLs.
+Copy-Item (Join-Path $out 'runtimes\win-x64\native\e_sqlite3.dll') $modDir -Force
+
 # App data: tier/event/enemy JSON. Overwrites the shipped files but never touches settings, the log, or the database.
 Copy-Tree (Join-Path $out 'AppData') $appDataDir
 
