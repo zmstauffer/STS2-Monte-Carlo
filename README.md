@@ -59,7 +59,7 @@ Subscribe on the [Steam Workshop page](#) — the mod auto-installs and updates.
 
 ```powershell
 # Close the game first, then build and install:
-.scriptsdeploy.ps1
+.\scripts\deploy.ps1
 ```
 
 Requires: .NET 9.0 SDK and Slay the Spire 2 installed (build references its DLLs via `GameDir` in the csproj).

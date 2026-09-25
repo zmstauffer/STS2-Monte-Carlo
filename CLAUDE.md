@@ -75,7 +75,7 @@ The upstream repo's last commit was 2026-03-19, targeting game v0.99.1. The game
 - The manifest is `SpireMonteCarlo/SpireMonteCarlo.json` (snake_case). The loader loads `<manifest dir>\<id>.dll`, so the manifest `id` must match the DLL name (case-insensitive on Windows).
 - JSON data lives in `SpireMonteCarlo/AppData/` and is deployed to `%APPDATA%\SpireMonteCarlo\`; `SpireMonteCarlo/Data/` (CardProperties `.tsv`) ships in `mods\SpireMonteCarlo\Data\`. The only `.json` under `mods\` is the manifest. The log and SQLite db stay next to the DLL.
 - Removed: CloudSync, the version check / update banner, and the `IsRunningModded` bypass. Modded play now uses the game's separate modded profile (the game copies unmodded saves on the first modded launch). Imported community stats are no longer re-merged after a run ends (that relied on the CloudSync cache); `RecomputeAll` resets them.
-- `scripts/deploy.ps1` builds and installs (game must be closed). `backend/` and `questcespire-api/` are the original author's server code, still present and no longer referenced by the mod; candidates for deletion.
+- `scripts/deploy.ps1` builds and installs (game must be closed). The original author's `backend/` and `questcespire-api/` server code has been deleted.
 
 Remaining step:
 
