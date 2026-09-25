@@ -1,0 +1,11 @@
+{
+  "id": "spiremontecarlo",
+  "name": "Spire Monte Carlo",
+  "author": "zmstauffer",
+  "description": "Run-level advisor for Slay the Spire 2, backed by Monte Carlo simulation: card rewards, map pathing, shops, events, and rest sites.",
+  "version": "0.1.0",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
+}
