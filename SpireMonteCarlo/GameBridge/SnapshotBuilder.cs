@@ -78,7 +78,14 @@ public static class SnapshotBuilder
 			Visited = runState.VisitedMapCoords.Select(ToCoord).ToList(),
 			Boss = map.BossMapPoint != null ? ToCoord(map.BossMapPoint.coord) : null
 		};
-		foreach (MapPoint point in map.GetAllMapPoints())
+		// The game's grid excludes the start and boss nodes, so add them explicitly.
+		var points = map.GetAllMapPoints().ToList();
+		foreach (MapPoint extra in new[] { map.StartingMapPoint, map.BossMapPoint, map.SecondBossMapPoint })
+		{
+			if (extra != null && !points.Contains(extra))
+				points.Add(extra);
+		}
+		foreach (MapPoint point in points)
 		{
 			result.Points.Add(new MapPointSnapshot
 			{

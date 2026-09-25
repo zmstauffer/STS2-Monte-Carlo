@@ -598,39 +598,16 @@ public static class GamePatches
 		}
 	}
 
-	public static void OnEventShowChoices(NEventRoom __result)
+	public static void OnEventShowChoices(NEventRoom __result, EventModel eventModel)
 	{
 		try
 		{
 			EnsureOverlay();
 			Plugin.Log("Event screen detected — showing context...");
 			RecordHook("OnEventShowChoices");
-			string eventId = null;
-			try
-			{
-				// Try extracting event ID via reflection: NEventRoom → Event → Id → Entry
-				var eventProp = __result.GetType().GetProperty("Event",
-					BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-				var eventObj = eventProp?.GetValue(__result);
-				if (eventObj != null)
-				{
-					var idProp = eventObj.GetType().GetProperty("Id",
-						BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-					var idObj = idProp?.GetValue(eventObj);
-					if (idObj != null)
-					{
-						var entryProp = idObj.GetType().GetProperty("Entry",
-							BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-						eventId = entryProp?.GetValue(idObj)?.ToString();
-					}
-				}
-				if (eventId != null)
-					Plugin.Log($"Event ID extracted: {eventId}");
-			}
-			catch (Exception ex)
-			{
-				Plugin.Log($"Event ID extraction failed: {ex.Message}");
-			}
+			string eventId = eventModel?.Id.Entry;
+			if (eventId != null)
+				Plugin.Log($"Event ID: {eventId}");
 			GameState gameState = GameStateReader.ReadCurrentState();
 			SnapshotExporter.Export(DecisionType.Event, gameState, eventId);
 			if (gameState != null)
