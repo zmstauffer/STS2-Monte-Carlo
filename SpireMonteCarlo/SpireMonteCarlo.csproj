@@ -35,9 +35,11 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
   </ItemGroup>
 
-  <!-- Copy JSON data files and the mod manifest to output -->
+  <!-- Data\ ships inside mods\SpireMonteCarlo\ (no .json allowed there); AppData\ is staged in the build output
+       and deployed to %APPDATA%\SpireMonteCarlo\ by the deploy script. -->
   <ItemGroup>
-    <None Include="Data\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Data\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="AppData\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Include="SpireMonteCarlo.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

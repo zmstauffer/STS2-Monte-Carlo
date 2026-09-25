@@ -83,12 +83,12 @@ public static class StatsExporter
 
 	/// <summary>
 	/// Scans multiple locations for an importable stats file.
-	/// Priority: plugin folder, Downloads, Desktop.
+	/// Priority: app data folder, Downloads, Desktop.
 	/// Accepts spiremontecarlo_stats_export*.json or spiremontecarlo_stats_import.json.
 	/// </summary>
-	public static string FindImportFile(string pluginFolder)
+	public static string FindImportFile(string dataFolder)
 	{
-		var foldersToScan = new List<string> { pluginFolder };
+		var foldersToScan = new List<string> { dataFolder };
 		string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		if (!string.IsNullOrEmpty(userProfile))
 		{

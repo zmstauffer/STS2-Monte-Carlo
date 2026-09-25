@@ -1372,7 +1372,7 @@ public class OverlayManager
 			{
 				try
 				{
-					var (path, cards, relics) = StatsExporter.ExportToFile(Plugin.RunDatabase, Plugin.PluginFolder);
+					var (path, cards, relics) = StatsExporter.ExportToFile(Plugin.RunDatabase, Plugin.AppDataFolder);
 					Plugin.Log($"Stats exported: {cards} cards, {relics} relics → {path}");
 					exportBtn.Text = $"Exported! ({cards} cards, {relics} relics)";
 					exportBtn.AddThemeColorOverride("font_color", ClrPositive);
@@ -1400,7 +1400,7 @@ public class OverlayManager
 			{
 				try
 				{
-					string importPath = StatsExporter.FindImportFile(Plugin.PluginFolder);
+					string importPath = StatsExporter.FindImportFile(Plugin.AppDataFolder);
 					if (importPath == null)
 					{
 						importBtn.Text = "Drop spiremontecarlo_stats_export.json in Downloads";

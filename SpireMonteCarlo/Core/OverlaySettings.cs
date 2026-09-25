@@ -31,7 +31,7 @@ public class OverlaySettings
 
 	private static string GetSettingsPath()
 	{
-		return Path.Combine(Plugin.PluginFolder, "overlay_settings.json");
+		return Path.Combine(Plugin.AppDataFolder, "overlay_settings.json");
 	}
 
 	public static OverlaySettings Load()

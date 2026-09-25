@@ -31,6 +31,8 @@ public static class Plugin
 
 	public static string PluginFolder { get; private set; }
 
+	public static string AppDataFolder { get; private set; }
+
 	public static string LogPath { get; private set; }
 
 	public static TierEngine TierEngine { get; private set; }
@@ -75,6 +77,9 @@ public static class Plugin
 			PluginFolder = Path.Combine(AppContext.BaseDirectory, "mods", "SpireMonteCarlo");
 		}
 		LogPath = Path.Combine(PluginFolder, "spiremontecarlo.log");
+		// JSON data lives outside mods\ because the game's mod loader treats every .json under mods\ as a possible manifest.
+		AppDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpireMonteCarlo");
+		Directory.CreateDirectory(AppDataFolder);
 		AppDomain.CurrentDomain.AssemblyResolve += delegate(object? sender, ResolveEventArgs args)
 		{
 			AssemblyName assemblyName = new AssemblyName(args.Name);
@@ -82,7 +87,7 @@ public static class Plugin
 			return File.Exists(text) ? Assembly.LoadFrom(text) : null;
 		};
 		Log($"{ModName} v{ModVersion} initializing...");
-		TierEngine = new TierEngine(Path.Combine(PluginFolder, "Data"));
+		TierEngine = new TierEngine(AppDataFolder);
 		CardPropertyScorer = new CardPropertyScorer(Path.Combine(PluginFolder, "Data", "CardProperties"));
 		DeckAnalyzer = new DeckAnalyzer();
 		SynergyScorer = new SynergyScorer();
@@ -93,8 +98,8 @@ public static class Plugin
 		LocalStats.RecomputeAll();
 		new GameDataImporter(RunDatabase).ImportAll();
 		AdaptiveScorer = new AdaptiveScorer(RunDatabase);
-		EventAdvisor = new EventAdvisor(Path.Combine(PluginFolder, "Data"));
-		EnemyAdvisor = new EnemyAdvisor(Path.Combine(PluginFolder, "Data"));
+		EventAdvisor = new EventAdvisor(AppDataFolder);
+		EnemyAdvisor = new EnemyAdvisor(AppDataFolder);
 		CloudSync = new CloudSync(RunDatabase, RunTracker.PlayerId);
 		var overlaySettings = OverlaySettings.Load();
 		if (overlaySettings.CloudSyncEnabled)
