@@ -41,8 +41,8 @@ Subscribe on the [Steam Workshop page](#) — the mod auto-installs and updates.
 
 ### Manual Install
 1. Download the [latest release](https://github.com/ebadon16/sts2-advisor/releases)
-2. Extract to: `Slay the Spire 2/mods/QuestceSpire/`
-3. The folder should contain: `QuestceSpire.pck`, `QuestceSpire.dll`, `Data/`, and runtime files
+2. Extract to: `Slay the Spire 2/mods/SpireMonteCarlo/`
+3. The folder should contain: `SpireMonteCarlo.pck`, `SpireMonteCarlo.dll`, `Data/`, and runtime files
 4. Launch the game — the overlay appears automatically on card/relic screens
 
 ## Controls
@@ -75,11 +75,11 @@ POST /api/aggregate — recomputes stats (runs every 6 hours)
 
 ```bash
 # Build the mod
-cd QuestceSpire
+cd SpireMonteCarlo
 dotnet build -c Release
 
 # Deploy to game (close the game first!)
-cp -r bin/Release/net9.0/* "Slay the Spire 2/mods/QuestceSpire/"
+cp -r bin/Release/net9.0/* "Slay the Spire 2/mods/SpireMonteCarlo/"
 
 # Run the API locally
 cd questcespire-api

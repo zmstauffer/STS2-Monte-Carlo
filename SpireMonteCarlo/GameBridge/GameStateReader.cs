@@ -1,0 +1,608 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Merchant;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Runs;
+
+namespace SpireMonteCarlo.GameBridge;
+
+public static class GameStateReader
+{
+	private static readonly PropertyInfo _stateProperty;
+	static GameStateReader()
+	{
+		_stateProperty = typeof(RunManager).GetProperty("State", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+		if (_stateProperty == null)
+			Plugin.Log("WARN: RunManager.State property not found via reflection — game state reading will fail.");
+	}
+
+	private static bool _keywordsFieldWarned;
+
+	private static readonly object _stateLock = new object();
+
+	private static IReadOnlyList<CardCreationResult> _lastCardOptionsField;
+	private static IReadOnlyList<RelicModel> _lastRelicOptionsField;
+	private static MerchantInventory _lastMerchantInventoryField;
+
+	internal static IReadOnlyList<CardCreationResult> _lastCardOptions
+	{
+		get { lock (_stateLock) return _lastCardOptionsField; }
+		set { lock (_stateLock) _lastCardOptionsField = value; }
+	}
+
+	internal static IReadOnlyList<RelicModel> _lastRelicOptions
+	{
+		get { lock (_stateLock) return _lastRelicOptionsField; }
+		set { lock (_stateLock) _lastRelicOptionsField = value; }
+	}
+
+	internal static MerchantInventory _lastMerchantInventory
+	{
+		get { lock (_stateLock) return _lastMerchantInventoryField; }
+		set { lock (_stateLock) _lastMerchantInventoryField = value; }
+	}
+
+	public static GameState ReadCurrentState()
+	{
+		try
+		{
+			RunManager instance = RunManager.Instance;
+			if (instance == null)
+			{
+				Plugin.Log("RunManager is null — not in a run.");
+				return null;
+			}
+			RunState runState = GetRunState(instance);
+			if (runState == null)
+			{
+				Plugin.Log("RunState is null — not in a run.");
+				return null;
+			}
+			Player player = runState.Players?.FirstOrDefault();
+			if (player == null)
+			{
+				Plugin.Log("No player found in RunState.");
+				return null;
+			}
+			var state = new GameState
+			{
+				Character = ReadCharacter(player),
+				ActNumber = runState.CurrentActIndex + 1,
+				Floor = runState.TotalFloor,
+				CurrentHP = ReadCurrentHP(player),
+				MaxHP = ReadMaxHP(player),
+				Gold = ReadGold(player),
+				AscensionLevel = runState.AscensionLevel,
+				DeckCards = ReadDeck(player),
+				CurrentRelics = ReadRelics(player),
+				OfferedCards = ReadOfferedCards(),
+				OfferedRelics = ReadOfferedRelics(),
+				ShopCards = ReadShopCards(player),
+				ShopRelics = ReadShopRelics(player),
+				ShopPotions = ReadShopPotions(player),
+				CurrentPotions = ReadCurrentPotions(player)
+			};
+			// Read combat piles (best-effort)
+			try
+			{
+				state.DrawPile = ReadPile(player, "DrawPile");
+				state.DiscardPile = ReadPile(player, "DiscardPile");
+				state.HandCards = ReadPile(player, "Hand");
+			}
+			catch (Exception pileEx)
+			{
+				Plugin.Log($"ReadPiles error (non-fatal): {pileEx.Message}");
+			}
+			return state;
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("Failed to read game state: " + ex.Message);
+			return null;
+		}
+	}
+
+	private static string ReadCharacter(Player player)
+	{
+		try
+		{
+			CharacterModel character = player.Character;
+			if (character?.Id != null)
+			{
+				return character.Id.Entry?.ToLowerInvariant() ?? "unknown";
+			}
+			return "unknown";
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadCharacter error: " + ex.Message);
+			return "unknown";
+		}
+	}
+
+	private static int ReadCurrentHP(Player player)
+	{
+		try
+		{
+			return player.Creature?.CurrentHp ?? 0;
+		}
+		catch
+		{
+			return 0;
+		}
+	}
+
+	private static int ReadMaxHP(Player player)
+	{
+		try
+		{
+			return player.Creature?.MaxHp ?? 0;
+		}
+		catch
+		{
+			return 0;
+		}
+	}
+
+	private static int ReadGold(Player player)
+	{
+		try
+		{
+			return player.Gold;
+		}
+		catch
+		{
+			return 0;
+		}
+	}
+
+	private static List<CardInfo> ReadDeck(Player player)
+	{
+		List<CardInfo> list = new List<CardInfo>();
+		try
+		{
+			CardPile deck = player.Deck;
+			if (deck?.Cards == null)
+			{
+				return list;
+			}
+			foreach (CardModel card in deck.Cards)
+			{
+				list.Add(CardModelToInfo(card));
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadDeck error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static List<RelicInfo> ReadRelics(Player player)
+	{
+		List<RelicInfo> list = new List<RelicInfo>();
+		try
+		{
+			IReadOnlyList<RelicModel> relics = player.Relics;
+			if (relics == null)
+			{
+				return list;
+			}
+			foreach (RelicModel item in relics)
+			{
+				list.Add(RelicModelToInfo(item));
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadRelics error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static List<CardInfo> ReadOfferedCards()
+	{
+		List<CardInfo> list = new List<CardInfo>();
+		try
+		{
+			if (_lastCardOptions != null)
+			{
+				foreach (CardCreationResult lastCardOption in _lastCardOptions)
+				{
+					CardModel card = lastCardOption.Card;
+					if (card != null)
+					{
+						list.Add(CardModelToInfo(card));
+					}
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadOfferedCards error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static List<RelicInfo> ReadOfferedRelics()
+	{
+		List<RelicInfo> list = new List<RelicInfo>();
+		try
+		{
+			if (_lastRelicOptions != null)
+			{
+				foreach (RelicModel lastRelicOption in _lastRelicOptions)
+				{
+					list.Add(RelicModelToInfo(lastRelicOption));
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadOfferedRelics error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static List<CardInfo> ReadShopCards(Player player)
+	{
+		List<CardInfo> list = new List<CardInfo>();
+		try
+		{
+			if (_lastMerchantInventory == null)
+			{
+				return list;
+			}
+			IEnumerable<MerchantCardEntry> characterCardEntries = _lastMerchantInventory.CharacterCardEntries;
+			IEnumerable<MerchantCardEntry> first = characterCardEntries ?? Enumerable.Empty<MerchantCardEntry>();
+			characterCardEntries = _lastMerchantInventory.ColorlessCardEntries;
+			IEnumerable<MerchantCardEntry> second = characterCardEntries ?? Enumerable.Empty<MerchantCardEntry>();
+			foreach (MerchantCardEntry item in first.Concat(second))
+			{
+				if (item.IsStocked)
+				{
+					CardModel cardModel = item.CreationResult?.Card;
+					if (cardModel != null)
+					{
+						CardInfo info = CardModelToInfo(cardModel);
+						info.Price = ReadMerchantPrice(item);
+						list.Add(info);
+					}
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadShopCards error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static List<RelicInfo> ReadShopRelics(Player player)
+	{
+		List<RelicInfo> list = new List<RelicInfo>();
+		try
+		{
+			if (_lastMerchantInventory == null)
+			{
+				return list;
+			}
+			IReadOnlyList<MerchantRelicEntry> relicEntries = _lastMerchantInventory.RelicEntries;
+			if (relicEntries == null)
+			{
+				return list;
+			}
+			foreach (MerchantRelicEntry item in relicEntries)
+			{
+				if (item.IsStocked)
+				{
+					RelicModel model = item.Model;
+					if (model != null)
+					{
+						RelicInfo info = RelicModelToInfo(model);
+						info.Price = ReadMerchantPrice(item);
+						list.Add(info);
+					}
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadShopRelics error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static List<CardInfo> ReadPile(Player player, string propertyName)
+	{
+		var list = new List<CardInfo>();
+		try
+		{
+			// Try player.{prop}, then player.Creature.{prop}, then player.PlayerCombatState.{prop}
+			// (Hand/DrawPile/DiscardPile live on PlayerCombatState, only non-null during combat)
+			object pile = null;
+			var prop = player.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			if (prop != null) pile = prop.GetValue(player);
+			if (pile == null && player.Creature != null)
+			{
+				prop = player.Creature.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				if (prop != null) pile = prop.GetValue(player.Creature);
+			}
+			if (pile == null && player.PlayerCombatState != null)
+			{
+				prop = player.PlayerCombatState.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				if (prop != null) pile = prop.GetValue(player.PlayerCombatState);
+			}
+			if (pile is CardPile cardPile && cardPile.Cards != null)
+			{
+				foreach (CardModel card in cardPile.Cards)
+				{
+					list.Add(CardModelToInfo(card));
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log($"ReadPile({propertyName}) error (non-fatal): {ex.Message}");
+		}
+		return list;
+	}
+
+	private static RunState GetRunState(RunManager runManager)
+	{
+		return _stateProperty?.GetValue(runManager) as RunState;
+	}
+
+	internal static CardInfo CardModelToInfo(CardModel card)
+	{
+		CardInfo obj = new CardInfo
+		{
+			Id = (card.Id?.Entry ?? "unknown"),
+			Name = (card.Title ?? card.Id?.Entry ?? "unknown"),
+			Cost = (card.EnergyCost?.Canonical ?? 0),
+			Type = card.Type.ToString(),
+			Rarity = card.Rarity.ToString()
+		};
+		ModelId id = card.Id;
+		obj.Upgraded = (object)id != null && id.Entry?.EndsWith("+") == true;
+		obj.Tags = new List<string>();
+		CardInfo cardInfo = obj;
+		try
+		{
+			var field = card.GetType().GetField("_keywords", BindingFlags.Instance | BindingFlags.NonPublic);
+			if (field == null)
+			{
+				if (!_keywordsFieldWarned)
+				{
+					Plugin.Log("WARN: CardModel._keywords field not found — card tags will be empty. Game version may have changed.");
+					_keywordsFieldWarned = true;
+				}
+			}
+			else if (field.GetValue(card) is HashSet<CardKeyword> hashSet)
+			{
+				foreach (CardKeyword item in hashSet)
+				{
+					if (item != CardKeyword.None)
+					{
+						cardInfo.Tags.Add(item.ToString().ToLowerInvariant());
+					}
+				}
+			}
+		}
+		catch (System.Exception ex)
+		{
+			if (!_keywordsFieldWarned)
+			{
+				Plugin.Log($"WARN: Failed to read card keywords: {ex.Message}");
+				_keywordsFieldWarned = true;
+			}
+		}
+		return cardInfo;
+	}
+
+	private static int ReadMerchantPrice(object entry)
+	{
+		try
+		{
+			// MerchantEntry.Cost already applies Hook.ModifyMerchantPrice
+			var prop = entry.GetType().GetProperty("Cost", BindingFlags.Instance | BindingFlags.Public);
+			if (prop != null)
+			{
+				object result = prop.GetValue(entry);
+				if (result is int price) return price;
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log($"ReadMerchantPrice error (non-fatal): {ex.Message}");
+		}
+		return 0;
+	}
+
+	private static List<PotionInfo> ReadShopPotions(Player player)
+	{
+		var list = new List<PotionInfo>();
+		try
+		{
+			if (_lastMerchantInventory == null)
+				return list;
+
+			// Access PotionEntries via reflection — type may be IReadOnlyList<MerchantPotionEntry>
+			var prop = _lastMerchantInventory.GetType().GetProperty("PotionEntries",
+				BindingFlags.Instance | BindingFlags.Public);
+			if (prop == null)
+			{
+				Plugin.Log("WARN: MerchantInventory.PotionEntries property not found.");
+				return list;
+			}
+			var entries = prop.GetValue(_lastMerchantInventory) as System.Collections.IEnumerable;
+			if (entries == null)
+				return list;
+
+			foreach (object entry in entries)
+			{
+				var entryType = entry.GetType();
+
+				// Check IsStocked
+				var stockedProp = entryType.GetProperty("IsStocked", BindingFlags.Instance | BindingFlags.Public);
+				if (stockedProp != null && stockedProp.GetValue(entry) is bool stocked && !stocked)
+					continue;
+
+				// Get the PotionModel — try Potion, then Model property
+				object potionModel = null;
+				var potionProp = entryType.GetProperty("Potion", BindingFlags.Instance | BindingFlags.Public)
+					?? entryType.GetProperty("Model", BindingFlags.Instance | BindingFlags.Public);
+				if (potionProp != null)
+					potionModel = potionProp.GetValue(entry);
+
+				if (potionModel == null)
+					continue;
+
+				var info = PotionModelToInfo(potionModel);
+				info.Price = ReadMerchantPrice(entry);
+				list.Add(info);
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadShopPotions error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static List<PotionInfo> ReadCurrentPotions(Player player)
+	{
+		var list = new List<PotionInfo>();
+		try
+		{
+			// Try PotionBelt, Potions, or PotionSlots on the player
+			object potionSource = null;
+			PropertyInfo potionProp = null;
+			foreach (var name in new[] { "PotionBelt", "Potions", "PotionSlots" })
+			{
+				potionProp = player.GetType().GetProperty(name,
+					BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+				if (potionProp != null)
+				{
+					potionSource = potionProp.GetValue(player);
+					if (potionSource != null)
+						break;
+				}
+			}
+
+			if (potionSource == null)
+				return list;
+
+			// If it's directly enumerable (list of PotionModel), iterate
+			System.Collections.IEnumerable slots = potionSource as System.Collections.IEnumerable;
+
+			// If it's a belt/container, look for a Slots or Potions sub-property
+			if (slots == null)
+			{
+				var sourceType = potionSource.GetType();
+				var slotsProp = sourceType.GetProperty("Slots", BindingFlags.Instance | BindingFlags.Public)
+					?? sourceType.GetProperty("Potions", BindingFlags.Instance | BindingFlags.Public)
+					?? sourceType.GetProperty("Items", BindingFlags.Instance | BindingFlags.Public);
+				if (slotsProp != null)
+					slots = slotsProp.GetValue(potionSource) as System.Collections.IEnumerable;
+			}
+
+			if (slots == null)
+				return list;
+
+			foreach (object slot in slots)
+			{
+				if (slot == null)
+					continue;
+
+				// Slot might be the PotionModel directly, or a slot wrapper with a Potion/Model property
+				object potionModel = slot;
+				var slotType = slot.GetType();
+
+				// Check if this is a wrapper by looking for Id property — PotionModel should have it
+				var idProp = slotType.GetProperty("Id", BindingFlags.Instance | BindingFlags.Public);
+				if (idProp == null)
+				{
+					// This is a wrapper — get the inner model
+					var innerProp = slotType.GetProperty("Potion", BindingFlags.Instance | BindingFlags.Public)
+						?? slotType.GetProperty("Model", BindingFlags.Instance | BindingFlags.Public);
+					if (innerProp != null)
+						potionModel = innerProp.GetValue(slot);
+				}
+
+				if (potionModel == null)
+					continue;
+
+				var info = PotionModelToInfo(potionModel);
+				if (info.Id != "unknown")
+					list.Add(info);
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("ReadCurrentPotions error: " + ex.Message);
+		}
+		return list;
+	}
+
+	private static PotionInfo PotionModelToInfo(object potionModel)
+	{
+		var info = new PotionInfo { Id = "unknown", Name = "unknown", Rarity = "unknown" };
+		try
+		{
+			var modelType = potionModel.GetType();
+
+			// Id — ModelId with .Entry property
+			var idProp = modelType.GetProperty("Id", BindingFlags.Instance | BindingFlags.Public);
+			if (idProp != null)
+			{
+				object idObj = idProp.GetValue(potionModel);
+				if (idObj != null)
+				{
+					var entryProp = idObj.GetType().GetProperty("Entry", BindingFlags.Instance | BindingFlags.Public);
+					if (entryProp != null)
+						info.Id = entryProp.GetValue(idObj) as string ?? "unknown";
+				}
+			}
+
+			// Name — Title property (may be LocalizedString or string)
+			var titleProp = modelType.GetProperty("Title", BindingFlags.Instance | BindingFlags.Public);
+			if (titleProp != null)
+			{
+				object titleObj = titleProp.GetValue(potionModel);
+				info.Name = titleObj?.ToString() ?? info.Id;
+			}
+			else
+			{
+				info.Name = info.Id;
+			}
+
+			// Rarity
+			var rarityProp = modelType.GetProperty("Rarity", BindingFlags.Instance | BindingFlags.Public);
+			if (rarityProp != null)
+			{
+				object rarityObj = rarityProp.GetValue(potionModel);
+				info.Rarity = rarityObj?.ToString() ?? "unknown";
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log("PotionModelToInfo error: " + ex.Message);
+		}
+		return info;
+	}
+
+	private static RelicInfo RelicModelToInfo(RelicModel relic)
+	{
+		return new RelicInfo
+		{
+			Id = (relic.Id?.Entry ?? "unknown"),
+			Name = (relic.Title?.ToString() ?? relic.Id?.Entry ?? "unknown"),
+			Rarity = relic.Rarity.ToString()
+		};
+	}
+}

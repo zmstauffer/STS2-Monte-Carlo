@@ -17,9 +17,9 @@ Every recommendation is justified with Monte Carlo simulation, with a horizon of
 
 ## Architecture (decided)
 
-1. **Mod ("eyes")** — this repo's `QuestceSpire` project, forked from `ebadon16/sts2-advisor`. Harmony hooks detect decision screens and read run state (deck, relics, potions, HP, gold, floor, visible map). Later it sends that state to the app over local IPC (socket or named pipe) and draws recommendations in its existing Godot overlay. Keep the mod thin: capture and display only.
+1. **Mod ("eyes")** — this repo's `SpireMonteCarlo` project, forked from `ebadon16/sts2-advisor`. Harmony hooks detect decision screens and read run state (deck, relics, potions, HP, gold, floor, visible map). Later it sends that state to the app over local IPC (socket or named pipe) and draws recommendations in its existing Godot overlay. Keep the mod thin: capture and display only.
 2. **Standalone app ("brain")** — a separate C# process (to be created in this repo). Holds the simulator, rollout loop, scoring, and explanation text. Must be testable without the game by loading saved state snapshots. Kept out of the game process so heavy CPU work can't stutter or crash the game, and so game patches break less.
-3. **Data** — a local cache of Spire Codex data (see below), stored under `%APPDATA%\QuestceSpire\`, refreshed when the game version changes. Replaces the original repo's hand-made tier JSON files.
+3. **Data** — a local cache of Spire Codex data (see below), stored under `%APPDATA%\SpireMonteCarlo\`, refreshed when the game version changes. Replaces the original repo's hand-made tier JSON files.
 
 ## Simulator design notes
 
@@ -61,7 +61,7 @@ Every recommendation is justified with Monte Carlo simulation, with a horizon of
   ```
   ilspycmd -p -o "C:\Users\zmsta\source\repos\STS2 Monte Carlo\sts2-decompiled" "C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll"
   ```
-- Game install (verify): `C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2`. Game assemblies are in `data_sts2_windows_x86_64\`. Installed mods go in `mods\QuestceSpire\`.
+- Game install (verify): `C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2`. Game assemblies are in `data_sts2_windows_x86_64\`. Installed mods go in `mods\SpireMonteCarlo\`.
 - The mod targets `net9.0` (the game's runtime). The .NET 10 SDK may also be installed; it's only needed for ilspycmd.
 - The game is Godot 4.5.1 (Mega Crit fork) with all game logic in C# in `sts2.dll`. Harmony ships with the game.
 - Modding references: https://fresh-milkshake.github.io/Modding-Tutorial/ (documented against v0.103.3) and the StS2 modding hub on slaythespire.wiki.gg.
@@ -70,8 +70,8 @@ Every recommendation is justified with Monte Carlo simulation, with a horizon of
 
 The upstream repo's last commit was 2026-03-19, targeting game v0.99.1. The game is now around v0.111 (check `release_info.json` in the game folder for the exact version). Next steps, in order:
 
-1. **Build references**: in `QuestceSpire/QuestceSpire.csproj`, add a `GameDir` property and change the three `HintPath`s from `..\lib\` to `$(GameDir)\data_sts2_windows_x86_64\` so builds always use the installed game's DLLs.
-2. **Build and fix compile errors**: `dotnet build QuestceSpire -c Release`. Fix renamed types and members by searching the decompiled source.
+1. **Build references**: in `SpireMonteCarlo/SpireMonteCarlo.csproj`, add a `GameDir` property and change the three `HintPath`s from `..\lib\` to `$(GameDir)\data_sts2_windows_x86_64\` so builds always use the installed game's DLLs.
+2. **Build and fix compile errors**: `dotnet build SpireMonteCarlo -c Release`. Fix renamed types and members by searching the decompiled source.
 3. **Verify string-based Harmony targets**. `GamePatches.ApplyManualPatches` looks methods up by name, so renamed methods fail only at runtime. Check each still exists with a compatible signature (several postfixes take `__0`):
    - `NCardRewardSelectionScreen`: `ShowScreen`, `SelectCard`, `RefreshOptions`, `_Ready`
    - `NChooseARelicSelection`: `ShowScreen`, `SelectHolder`
@@ -80,14 +80,14 @@ The upstream repo's last commit was 2026-03-19, targeting game v0.99.1. The game
    - `NDeckUpgradeSelectScreen.ShowScreen`
    - `RunManager.Launch`, `RunManager.OnEnded`
    - Also check the reflection reads in `GameBridge/GameStateReader.cs`.
-4. **Manifest**: delete `mod_manifest.json` (old embedded camelCase format). Create an external `QuestceSpire.json` using the current snake_case format: `id`, `name`, `author`, `description`, `version`, `has_pck`, `has_dll`, `dependencies`, `affects_gameplay`. Set `affects_gameplay` to false and try `has_pck: false` first (the overlay is built in code). Confirm the fields against the `ModManifest` class in the decompiled source, since the loader may have changed since v0.103.3.
-5. **Move all JSON out of the mod folder**: the loader treats every `.json` under `mods/` as a possible manifest. Move `Data/CardTiers`, `Data/RelicTiers`, `EventAdvice/events.json`, `EnemyTips/enemies.json`, `overlay_settings.json`, and the stats export/import files to `%APPDATA%\QuestceSpire\` (or change their extensions).
+4. **Manifest**: delete `mod_manifest.json` (old embedded camelCase format). Create an external `SpireMonteCarlo.json` using the current snake_case format: `id`, `name`, `author`, `description`, `version`, `has_pck`, `has_dll`, `dependencies`, `affects_gameplay`. Set `affects_gameplay` to false and try `has_pck: false` first (the overlay is built in code). Confirm the fields against the `ModManifest` class in the decompiled source, since the loader may have changed since v0.103.3.
+5. **Move all JSON out of the mod folder**: the loader treats every `.json` under `mods/` as a possible manifest. Move `Data/CardTiers`, `Data/RelicTiers`, `EventAdvice/events.json`, `EnemyTips/enemies.json`, `overlay_settings.json`, and the stats export/import files to `%APPDATA%\SpireMonteCarlo\` (or change their extensions).
 6. **Remove unwanted behavior**:
    - The `IsRunningModded` override in `Plugin.cs` (around lines 130–144) and `ForceNotModded` in `GamePatches.cs`. The game keeps modded play on a separate profile on purpose; do not bypass it.
    - `Tracking/CloudSync.cs` and all references (uploads to the original author's server).
    - The fire-and-forget version check in `Plugin.Init` (it phones home to the original author's infrastructure).
-7. **Deploy**: write a small PowerShell script or VS Code task that copies the build output (DLL, `QuestceSpire.json`, dependencies including the `runtimes\` folder for SQLite) to the game's `mods\QuestceSpire\`. The game must be closed first because it locks the DLL.
-8. **Verify**: launch the game, check `questcespire.log` (`PatchMethod` logs every hook it couldn't find), then play a quick run and confirm each hook fires: card reward, relic choice, shop, map, event, rest site.
+7. **Deploy**: write a small PowerShell script or VS Code task that copies the build output (DLL, `SpireMonteCarlo.json`, dependencies including the `runtimes\` folder for SQLite) to the game's `mods\SpireMonteCarlo\`. The game must be closed first because it locks the DLL.
+8. **Verify**: launch the game, check `spiremontecarlo.log` (`PatchMethod` logs every hook it couldn't find), then play a quick run and confirm each hook fires: card reward, relic choice, shop, map, event, rest site.
 
 After the mod works: define the run-state snapshot format and IPC contract, add snapshot export to the mod, create the standalone app project, build the Spire Codex cache, then start the first simulator milestone.
 

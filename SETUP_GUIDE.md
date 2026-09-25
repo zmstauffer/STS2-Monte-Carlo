@@ -102,16 +102,16 @@ Remove the `#if !STS2_REAL_HOOKS` placeholder classes at the bottom of Plugin.cs
 dotnet build -c Release
 ```
 
-Output: `QuestceSpire/bin/Release/net9.0/`
+Output: `SpireMonteCarlo/bin/Release/net9.0/`
 
 ## Step 5: Install
 
 ### Option A: Startup Hook (Recommended)
 
-1. Copy `QuestceSpire.dll` + `Data/` folder to a mod directory:
+1. Copy `SpireMonteCarlo.dll` + `Data/` folder to a mod directory:
    ```
-   <STS2 install>/mods/QuestceSpire/
-     QuestceSpire.dll
+   <STS2 install>/mods/SpireMonteCarlo/
+     SpireMonteCarlo.dll
      Newtonsoft.Json.dll
      Microsoft.Data.Sqlite.dll
      SQLitePCLRaw.core.dll
@@ -124,7 +124,7 @@ Output: `QuestceSpire/bin/Release/net9.0/`
 2. Set the startup hook environment variable. Create/edit a batch file:
    ```batch
    @echo off
-   set DOTNET_STARTUP_HOOKS=mods\QuestceSpire\QuestceSpire.dll
+   set DOTNET_STARTUP_HOOKS=mods\SpireMonteCarlo\SpireMonteCarlo.dll
    SlayTheSpire2.exe
    ```
    Save as `launch_modded.bat` in the game folder.
@@ -135,7 +135,7 @@ Output: `QuestceSpire/bin/Release/net9.0/`
 
 Right-click STS2 in Steam → Properties → Launch Options:
 ```
-DOTNET_STARTUP_HOOKS=data_sts2_windows_x86_64\..\mods\QuestceSpire\QuestceSpire.dll %command%
+DOTNET_STARTUP_HOOKS=data_sts2_windows_x86_64\..\mods\SpireMonteCarlo\SpireMonteCarlo.dll %command%
 ```
 
 Note: The exact path may need adjustment. The startup hook path must be
@@ -144,7 +144,7 @@ relative to the working directory or absolute.
 ## Step 6: Verify
 
 1. Launch game via the modded launcher
-2. Check `mods/QuestceSpire/questcespire.log` for:
+2. Check `mods/SpireMonteCarlo/spiremontecarlo.log` for:
    ```
    [Qu'est-ce Spire?] Qu'est-ce Spire? v0.2.0 initialized successfully.
    ```
@@ -156,8 +156,8 @@ relative to the working directory or absolute.
 
 ### Mod doesn't load (no log file)
 - Verify the `DOTNET_STARTUP_HOOKS` path is correct
-- The path must point exactly to `QuestceSpire.dll`
-- Try an absolute path: `C:\...\mods\QuestceSpire\QuestceSpire.dll`
+- The path must point exactly to `SpireMonteCarlo.dll`
+- Try an absolute path: `C:\...\mods\SpireMonteCarlo\SpireMonteCarlo.dll`
 
 ### "Method not found" or "Type not found" in log
 - Harmony patches target wrong class/method names
@@ -175,4 +175,4 @@ relative to the working directory or absolute.
 ### Game crashes on launch
 - Target framework mismatch: ensure you're building for net9.0
 - Missing dependency: copy all required DLLs to the mod folder
-- Check questcespire.log for the error before crash
+- Check spiremontecarlo.log for the error before crash

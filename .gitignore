@@ -14,7 +14,7 @@ questcespire-api/.wrangler/
 # Local data
 *.db
 *.db-journal
-questcespire.log
+spiremontecarlo.log
 player_id.txt
 overlay_settings.json
-questcespire_stats_*.json
+spiremontecarlo_stats_*.json
