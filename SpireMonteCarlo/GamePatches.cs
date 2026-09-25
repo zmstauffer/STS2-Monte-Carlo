@@ -609,7 +609,7 @@ public static class GamePatches
 			if (eventId != null)
 				Plugin.Log($"Event ID: {eventId}");
 			GameState gameState = GameStateReader.ReadCurrentState();
-			SnapshotExporter.Export(DecisionType.Event, gameState, eventId);
+			SnapshotExporter.Export(DecisionType.Event, gameState, eventModel);
 			if (gameState != null)
 			{
 				DeckAnalysis deckAnalysis = Plugin.DeckAnalyzer.Analyze(gameState.Character, gameState.DeckCards, Plugin.TierEngine, gameState.CurrentRelics);

@@ -17,6 +17,9 @@ public sealed class RunSnapshot
     /// <summary>Set for event decisions (EventModel id entry).</summary>
     public string? EventId { get; set; }
 
+    /// <summary>The choices an event is showing; empty for non-event decisions.</summary>
+    public List<EventOptionSnapshot> EventOptions { get; set; } = new();
+
     public RunInfo Run { get; set; } = new();
     public List<CardSnapshot> Deck { get; set; } = new();
     public List<string> Relics { get; set; } = new();
@@ -82,6 +85,20 @@ public sealed class Offer
     public List<CardSnapshot> Cards { get; set; } = new();
     public List<RelicOffer> Relics { get; set; } = new();
     public List<PotionSnapshot> Potions { get; set; } = new();
+    /// <summary>Shop only: gold cost of removing a card; null when unavailable or already used.</summary>
+    public int? CardRemovalPrice { get; set; }
+}
+
+public sealed class EventOptionSnapshot
+{
+    /// <summary>Stable key for the option within its event.</summary>
+    public string TextKey { get; set; } = "";
+    /// <summary>Localized display text, for humans reading snapshots rather than for logic.</summary>
+    public string Title { get; set; } = "";
+    /// <summary>Id of the relic this option grants, when it grants one (Ancient events).</summary>
+    public string? Relic { get; set; }
+    public bool IsLocked { get; set; }
+    public bool IsProceed { get; set; }
 }
 
 public readonly record struct MapCoordinate(int Col, int Row);

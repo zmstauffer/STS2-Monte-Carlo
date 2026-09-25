@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using MegaCrit.Sts2.Core.Debug;
+using MegaCrit.Sts2.Core.Entities.Merchant;
+using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Runs;
 using SpireMonteCarlo.Contracts;
 
@@ -9,7 +13,7 @@ namespace SpireMonteCarlo.GameBridge;
 
 public static class SnapshotBuilder
 {
-	public static RunSnapshot Build(string decision, GameState state, string eventId = null)
+	public static RunSnapshot Build(string decision, GameState state, EventModel eventModel = null)
 	{
 		var snapshot = new RunSnapshot
 		{
@@ -17,7 +21,8 @@ public static class SnapshotBuilder
 			ModVersion = Plugin.ModVersion,
 			CapturedAt = DateTimeOffset.Now,
 			Decision = decision,
-			EventId = eventId,
+			EventId = eventModel?.Id.Entry,
+			EventOptions = ReadEventOptions(eventModel),
 			Run = new RunInfo
 			{
 				Character = state.Character ?? "",
@@ -38,6 +43,9 @@ public static class SnapshotBuilder
 			snapshot.Offer.Cards = state.ShopCards.Select(ToCard).ToList();
 			snapshot.Offer.Relics = state.ShopRelics.Select(r => new RelicOffer { Id = r.Id, Price = r.Price }).ToList();
 			snapshot.Offer.Potions = state.ShopPotions.Select(p => new PotionSnapshot { Id = p.Id, Price = p.Price }).ToList();
+			MerchantCardRemovalEntry removal = GameStateReader._lastMerchantInventory?.CardRemovalEntry;
+			if (removal != null && removal.IsStocked)
+				snapshot.Offer.CardRemovalPrice = removal.Cost;
 		}
 		else
 		{
@@ -60,6 +68,33 @@ public static class SnapshotBuilder
 			Plugin.Log($"SnapshotBuilder: could not read run state extras: {ex.Message}");
 		}
 		return snapshot;
+	}
+
+	private static List<EventOptionSnapshot> ReadEventOptions(EventModel eventModel)
+	{
+		var options = new List<EventOptionSnapshot>();
+		if (eventModel == null) return options;
+		try
+		{
+			foreach (EventOption option in eventModel.CurrentOptions)
+			{
+				string title = "";
+				try { title = option.Title?.GetFormattedText() ?? ""; } catch { }
+				options.Add(new EventOptionSnapshot
+				{
+					TextKey = option.TextKey ?? "",
+					Title = title,
+					Relic = option.Relic?.Id.Entry,
+					IsLocked = option.IsLocked,
+					IsProceed = option.IsProceed
+				});
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log($"SnapshotBuilder: could not read event options: {ex.Message}");
+		}
+		return options;
 	}
 
 	private static CardSnapshot ToCard(CardInfo c) => new CardSnapshot { Id = c.Id, Upgraded = c.Upgraded, Price = c.Price };

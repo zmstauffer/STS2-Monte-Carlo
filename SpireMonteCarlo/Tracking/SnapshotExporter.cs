@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using MegaCrit.Sts2.Core.Models;
 using SpireMonteCarlo.Contracts;
 using SpireMonteCarlo.GameBridge;
 
@@ -15,12 +16,12 @@ public static class SnapshotExporter
 
 	public static string Folder => Path.Combine(Plugin.AppDataFolder, "snapshots");
 
-	public static void Export(string decision, GameState state, string eventId = null)
+	public static void Export(string decision, GameState state, EventModel eventModel = null)
 	{
 		if (state == null) return;
 		try
 		{
-			RunSnapshot snapshot = SnapshotBuilder.Build(decision, state, eventId);
+			RunSnapshot snapshot = SnapshotBuilder.Build(decision, state, eventModel);
 			// The same screen often fires several hooks (e.g. ShowScreen then RefreshOptions); skip exact repeats.
 			DateTimeOffset capturedAt = snapshot.CapturedAt;
 			snapshot.CapturedAt = default;
