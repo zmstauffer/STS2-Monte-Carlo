@@ -77,11 +77,18 @@ The upstream repo's last commit was 2026-03-19, targeting game v0.99.1. The game
 - Removed: CloudSync, the version check / update banner, and the `IsRunningModded` bypass. Modded play now uses the game's separate modded profile (the game copies unmodded saves on the first modded launch). Imported community stats are no longer re-merged after a run ends (that relied on the CloudSync cache); `RecomputeAll` resets them.
 - `scripts/deploy.ps1` builds and installs (game must be closed). The original author's `backend/` and `questcespire-api/` server code has been deleted.
 
-Remaining step:
+Verified in game (v0.111.0): the mod loads, all 17 Harmony patches apply, SQLite works, and the card reward, shop (with purchases), map, event, rest site, card upgrade, and combat hooks fire. Notes from that:
 
-8. **Verify in game**: launch the game, accept the mods warning, check `mods\SpireMonteCarlo\spiremontecarlo.log` and `%APPDATA%\SlayTheSpire2\logs\godot.log` (`PatchMethod` logs every hook it couldn't find), then play a quick run and confirm each hook fires: card reward, relic choice, shop, map, event, rest site. Also confirm SQLite works (the log shows database errors if the native `runtimes\` lookup fails).
+- `NChooseARelicSelection` is dead code in v0.111 (nothing calls `RelicSelectCmd`), so the relic-choice hooks never fire. Relics arrive through Ancient events (act start; the options are `EventModel.CurrentOptions`), shops, and rewards/treasure.
+- The original event-id lookup never worked (`NEventRoom` has no `Event` property); the id now comes from the `EventModel` parameter of `NEventRoom.Create`.
+- `ActMap.GetAllMapPoints` omits the start and boss nodes; snapshots add them explicitly.
 
-After the mod works: define the run-state snapshot format and IPC contract, add snapshot export to the mod, create the standalone app project, build the Spire Codex cache, then start the first simulator milestone.
+Snapshots and the app:
+
+- `SpireMonteCarlo.Contracts` defines `RunSnapshot` (run info, deck, relics, potions, the offer, event options, the act map) and `SnapshotSerializer` (snake_case JSON). The mod writes one snapshot per decision screen to `%APPDATA%\SpireMonteCarlo\snapshots\` (newest 500 kept). Real captured snapshots live in `SpireMonteCarlo.Tests/Fixtures/`.
+- `SpireMonteCarlo.Advisor` is the standalone app (console for now). It loads snapshots from files, so it runs without the game. No IPC yet; the IPC contract comes once the app produces recommendations worth sending back.
+
+Next: build the Spire Codex cache (`%APPDATA%\SpireMonteCarlo\`), then the first simulator milestone (one character, Act 1, card rewards).
 
 ## Notes on the original codebase
 
