@@ -68,26 +68,18 @@ Every recommendation is justified with Monte Carlo simulation, with a horizon of
 
 ## Current status: updating the forked mod
 
-The upstream repo's last commit was 2026-03-19, targeting game v0.99.1. The game is now around v0.111 (check `release_info.json` in the game folder for the exact version). Next steps, in order:
+The upstream repo's last commit was 2026-03-19, targeting game v0.99.1. The game is now v0.111.0. Steps 1–7 of the update are done and committed:
 
-1. **Build references**: in `SpireMonteCarlo/SpireMonteCarlo.csproj`, add a `GameDir` property and change the three `HintPath`s from `..\lib\` to `$(GameDir)\data_sts2_windows_x86_64\` so builds always use the installed game's DLLs.
-2. **Build and fix compile errors**: `dotnet build SpireMonteCarlo -c Release`. Fix renamed types and members by searching the decompiled source.
-3. **Verify string-based Harmony targets**. `GamePatches.ApplyManualPatches` looks methods up by name, so renamed methods fail only at runtime. Check each still exists with a compatible signature (several postfixes take `__0`):
-   - `NCardRewardSelectionScreen`: `ShowScreen`, `SelectCard`, `RefreshOptions`, `_Ready`
-   - `NChooseARelicSelection`: `ShowScreen`, `SelectHolder`
-   - `NMerchantInventory.Open`; `OnTryPurchase` on `MerchantCardEntry`, `MerchantRelicEntry`, `MerchantPotionEntry`
-   - `NMapScreen.Open`; `Create` on `NEventRoom`, `NCombatRoom`, `NRestSiteRoom`
-   - `NDeckUpgradeSelectScreen.ShowScreen`
-   - `RunManager.Launch`, `RunManager.OnEnded`
-   - Also check the reflection reads in `GameBridge/GameStateReader.cs`.
-4. **Manifest**: delete `mod_manifest.json` (old embedded camelCase format). Create an external `SpireMonteCarlo.json` using the current snake_case format: `id`, `name`, `author`, `description`, `version`, `has_pck`, `has_dll`, `dependencies`, `affects_gameplay`. Set `affects_gameplay` to false and try `has_pck: false` first (the overlay is built in code). Confirm the fields against the `ModManifest` class in the decompiled source, since the loader may have changed since v0.103.3.
-5. **Move all JSON out of the mod folder**: the loader treats every `.json` under `mods/` as a possible manifest. Move `Data/CardTiers`, `Data/RelicTiers`, `EventAdvice/events.json`, `EnemyTips/enemies.json`, `overlay_settings.json`, and the stats export/import files to `%APPDATA%\SpireMonteCarlo\` (or change their extensions).
-6. **Remove unwanted behavior**:
-   - The `IsRunningModded` override in `Plugin.cs` (around lines 130–144) and `ForceNotModded` in `GamePatches.cs`. The game keeps modded play on a separate profile on purpose; do not bypass it.
-   - `Tracking/CloudSync.cs` and all references (uploads to the original author's server).
-   - The fire-and-forget version check in `Plugin.Init` (it phones home to the original author's infrastructure).
-7. **Deploy**: write a small PowerShell script or VS Code task that copies the build output (DLL, `SpireMonteCarlo.json`, dependencies including the `runtimes\` folder for SQLite) to the game's `mods\SpireMonteCarlo\`. The game must be closed first because it locks the DLL.
-8. **Verify**: launch the game, check `spiremontecarlo.log` (`PatchMethod` logs every hook it couldn't find), then play a quick run and confirm each hook fires: card reward, relic choice, shop, map, event, rest site.
+- The project builds against the installed game DLLs (`GameDir` in the csproj). All Harmony patch targets exist in v0.111 with compatible signatures (checked against the decompiled source). Three broken reflection reads were fixed (shop prices via `MerchantEntry.Cost`, combat piles via `Player.PlayerCombatState`, purchase-log card id via `CreationResult.Card`).
+- Known, deliberately unfixed: `GameStateReader.CardModelToInfo` reads the private base-class field `CardModel._keywords` through the leaf type, so card `Tags` are always empty. It only feeds `SynergyScorer`, which gets replaced by Codex + simulation.
+- The manifest is `SpireMonteCarlo/SpireMonteCarlo.json` (snake_case). The loader loads `<manifest dir>\<id>.dll`, so the manifest `id` must match the DLL name (case-insensitive on Windows).
+- JSON data lives in `SpireMonteCarlo/AppData/` and is deployed to `%APPDATA%\SpireMonteCarlo\`; `SpireMonteCarlo/Data/` (CardProperties `.tsv`) ships in `mods\SpireMonteCarlo\Data\`. The only `.json` under `mods\` is the manifest. The log and SQLite db stay next to the DLL.
+- Removed: CloudSync, the version check / update banner, and the `IsRunningModded` bypass. Modded play now uses the game's separate modded profile (the game copies unmodded saves on the first modded launch). Imported community stats are no longer re-merged after a run ends (that relied on the CloudSync cache); `RecomputeAll` resets them.
+- `scripts/deploy.ps1` builds and installs (game must be closed). `backend/` and `questcespire-api/` are the original author's server code, still present and no longer referenced by the mod; candidates for deletion.
+
+Remaining step:
+
+8. **Verify in game**: launch the game, accept the mods warning, check `mods\SpireMonteCarlo\spiremontecarlo.log` and `%APPDATA%\SlayTheSpire2\logs\godot.log` (`PatchMethod` logs every hook it couldn't find), then play a quick run and confirm each hook fires: card reward, relic choice, shop, map, event, rest site. Also confirm SQLite works (the log shows database errors if the native `runtimes\` lookup fails).
 
 After the mod works: define the run-state snapshot format and IPC contract, add snapshot export to the mod, create the standalone app project, build the Spire Codex cache, then start the first simulator milestone.
 
