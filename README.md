@@ -55,44 +55,18 @@ Subscribe on the [Steam Workshop page](#) — the mod auto-installs and updates.
 | F10 | Toggle deck breakdown |
 | F11 | Toggle draw probability |
 
-## Community Stats
-
-Run data is anonymously synced to a shared server. You can browse community-wide pick rates and win deltas at:
-
-**[questcespire-api.questcespire.workers.dev](https://questcespire-api.questcespire.workers.dev)**
-
-Opt out anytime by setting `CloudSyncEnabled: false` in `overlay_settings.json`.
-
-## Community Stats API
-
-```
-GET  /api/stats?character=silent&min_samples=5
-POST /api/upload   — used by the mod automatically
-POST /api/aggregate — recomputes stats (runs every 6 hours)
-```
-
 ## Building from Source
 
-```bash
-# Build the mod
-cd SpireMonteCarlo
-dotnet build -c Release
-
-# Deploy to game (close the game first!)
-cp -r bin/Release/net9.0/* "Slay the Spire 2/mods/SpireMonteCarlo/"
-
-# Run the API locally
-cd questcespire-api
-npm install
-npx wrangler dev
+```powershell
+# Close the game first, then build and install:
+.scriptsdeploy.ps1
 ```
 
-Requires: .NET 9.0 SDK, game DLLs in `lib/` (0Harmony.dll, GodotSharp.dll, sts2.dll)
+Requires: .NET 9.0 SDK and Slay the Spire 2 installed (build references its DLLs via `GameDir` in the csproj).
 
 ## Tech Stack
 
 - **Mod**: C# / .NET 9.0, Harmony for runtime patching, Godot CanvasLayer overlay, SQLite for local tracking
-- **API**: Cloudflare Worker (TypeScript) + D1 (SQLite), free tier
 - **Game**: Slay the Spire 2 (Godot 4.5.1)
 
 ## Support

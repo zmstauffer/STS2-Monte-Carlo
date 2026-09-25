@@ -7,9 +7,6 @@ lib/
 .idea/
 *.DotSettings
 
-# Cloudflare Worker
-questcespire-api/node_modules/
-questcespire-api/.wrangler/
 
 # Local data
 *.db
