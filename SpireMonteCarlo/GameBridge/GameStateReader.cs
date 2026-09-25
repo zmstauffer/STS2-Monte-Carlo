@@ -352,7 +352,7 @@ public static class GameStateReader
 		return list;
 	}
 
-	private static RunState GetRunState(RunManager runManager)
+	internal static RunState GetRunState(RunManager runManager)
 	{
 		return _stateProperty?.GetValue(runManager) as RunState;
 	}

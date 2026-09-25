@@ -16,6 +16,7 @@ using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Runs;
+using SpireMonteCarlo.Contracts;
 using SpireMonteCarlo.Core;
 using SpireMonteCarlo.GameBridge;
 using SpireMonteCarlo.Tracking;
@@ -220,6 +221,7 @@ public static class GamePatches
 			Plugin.Log("Card reward: no offered cards in game state");
 			return false;
 		}
+		SnapshotExporter.Export(DecisionType.CardReward, gameState);
 
 		DeckAnalysis deckAnalysis = Plugin.DeckAnalyzer.Analyze(gameState.Character, gameState.DeckCards, Plugin.TierEngine, gameState.CurrentRelics);
 		Plugin.RunTracker?.RecordArchetypeSnapshot(gameState.Floor, deckAnalysis);
@@ -278,6 +280,7 @@ public static class GamePatches
 			GameStateReader._lastRelicOptions = relics;
 			GameStateReader._lastMerchantInventory = null;
 			GameState gameState = GameStateReader.ReadCurrentState();
+			SnapshotExporter.Export(DecisionType.RelicReward, gameState);
 			if (gameState != null)
 			{
 				DeckAnalysis deckAnalysis = Plugin.DeckAnalyzer.Analyze(gameState.Character, gameState.DeckCards, Plugin.TierEngine, gameState.CurrentRelics);
@@ -309,6 +312,7 @@ public static class GamePatches
 			GameStateReader._lastRelicOptions = null;
 			GameStateReader._lastMerchantInventory = inventory;
 			GameState gameState = GameStateReader.ReadCurrentState();
+			SnapshotExporter.Export(DecisionType.Shop, gameState);
 			if (gameState != null)
 			{
 				DeckAnalysis deckAnalysis = Plugin.DeckAnalyzer.Analyze(gameState.Character, gameState.DeckCards, Plugin.TierEngine, gameState.CurrentRelics);
@@ -404,6 +408,7 @@ public static class GamePatches
 			Plugin.Log("Rest site detected — showing upgrade advice...");
 			RecordHook("OnRestSiteOpened");
 			GameState gameState = GameStateReader.ReadCurrentState();
+			SnapshotExporter.Export(DecisionType.RestSite, gameState);
 			if (gameState != null)
 			{
 				DeckAnalysis deckAnalysis = Plugin.DeckAnalyzer.Analyze(gameState.Character, gameState.DeckCards, Plugin.TierEngine, gameState.CurrentRelics);
@@ -424,6 +429,7 @@ public static class GamePatches
 			EnsureOverlay();
 			Plugin.Log($"Upgrade card selection detected — {cards?.Count ?? 0} cards offered...");
 			GameState gameState = GameStateReader.ReadCurrentState();
+			SnapshotExporter.Export(DecisionType.CardUpgrade, gameState);
 			if (gameState == null) return;
 
 			string character = gameState.Character ?? "unknown";
@@ -626,6 +632,7 @@ public static class GamePatches
 				Plugin.Log($"Event ID extraction failed: {ex.Message}");
 			}
 			GameState gameState = GameStateReader.ReadCurrentState();
+			SnapshotExporter.Export(DecisionType.Event, gameState, eventId);
 			if (gameState != null)
 			{
 				DeckAnalysis deckAnalysis = Plugin.DeckAnalyzer.Analyze(gameState.Character, gameState.DeckCards, Plugin.TierEngine, gameState.CurrentRelics);
@@ -650,6 +657,7 @@ public static class GamePatches
 			GameStateReader._lastRelicOptions = null;
 			GameStateReader._lastMerchantInventory = null;
 			GameState gameState = GameStateReader.ReadCurrentState();
+			SnapshotExporter.Export(DecisionType.Map, gameState);
 			if (gameState != null)
 			{
 				DeckAnalysis deckAnalysis = Plugin.DeckAnalyzer.Analyze(gameState.Character, gameState.DeckCards, Plugin.TierEngine, gameState.CurrentRelics);
