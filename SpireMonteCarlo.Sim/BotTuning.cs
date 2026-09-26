@@ -62,7 +62,7 @@ public sealed class BotTuning
     /// <summary>Leaf mode: value of each Weak/Frail/Vulnerable stack (up to 3 each) on the player after the enemies' turn.</summary>
     public double PlayerDebuffs = -2.16;
     /// <summary>Leaf mode: value of each HP the plan itself costs (Bloodletting, Offering, ...).</summary>
-    public double SelfDamage = -2.1;
+    public double SelfDamage = -1.5;
 
     public static BotTuning Default { get; } = FromEnvironment();
 

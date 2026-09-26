@@ -290,6 +290,7 @@ public sealed class BasicBot
             foreach (int t in CandidateTargets(combat, Combat.NeedsTarget(card)))
             {
                 double score = ScoreEffects(combat, card.Effects, card, i, t, needBlock, lethalNow, energyAfter, combat.Hand.Count - 1);
+                if (Tuning.Leaf > 0 && GivesSpareEnergy(combat, card, cost)) score = Math.Max(score, 50);
                 if (score >= MinScoreToPlay) list.Add((new BotAction(card.Tag, null, t), score));
             }
         }
@@ -307,6 +308,20 @@ public sealed class BasicBot
             }
         }
         return list;
+    }
+
+    /// <summary>
+    /// A play that gives back more energy than it costs (Bloodletting) while the rest of the hand costs more than the energy left. Its
+    /// own score can't see what the energy buys, so without this the search cut it before trying it and then spent the energy
+    /// elsewhere, leaving Bloodletting a dead card. The plan's judgement still decides whether it is worth its drawback.
+    /// </summary>
+    private static bool GivesSpareEnergy(Combat combat, CardDef card, int cost)
+    {
+        if (cost == CardDef.XCost) return false;
+        int gain = card.Effects.Where(e => e.Op == EffectOp.Energy && e.AmountSource == Source.None).Sum(e => e.Amount);
+        if (gain <= cost) return false;
+        int wanted = combat.Hand.Where(o => o != card && combat.CanPlayIgnoringEnergy(o)).Sum(o => combat.EffectiveCost(o) == CardDef.XCost ? 2 : Math.Max(0, combat.EffectiveCost(o)));   // an X card wants whatever is spare
+        return wanted > combat.Energy - cost;
     }
 
     /// <summary>Healing is worth much more when HP is low.</summary>

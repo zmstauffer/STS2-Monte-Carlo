@@ -200,6 +200,15 @@ public sealed partial class Combat
         return (cost == CardDef.XCost || cost <= Energy) && CardRulesAllowPlay(card);
     }
 
+    /// <summary>Whether the card could be played if energy were no object (the bot asks this to see what spare energy would buy).</summary>
+    public bool CanPlayIgnoringEnergy(CardDef card)
+    {
+        if (Result != CombatResult.Ongoing || card.Cost == CardDef.Unplayable) return false;
+        if (PlayerPowers[(int)PowerKind.Ringing] > 0 && CardsPlayedThisTurn >= 1) return false;
+        if (PlayerPowers[(int)PowerKind.Smoggy] > 0 && card.Kind == CardKind.Skill && _skillsThisTurn >= 1) return false;
+        return CardRulesAllowPlay(card);
+    }
+
     /// <summary>Damage one attack of <paramref name="baseDamage"/> would deal to <paramref name="target"/> right now (null: ignore the target's powers).</summary>
     public int PlayerAttackDamage(int baseDamage, Enemy? target, CardDef? card = null)
     {
