@@ -39,10 +39,17 @@ public sealed class Combat
 
     public int AliveEnemies => Enemies.Count(e => e.Alive);
 
-    public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed, int maxEnergy = 3, IReadOnlyList<int>? altStarts = null)
+    /// <summary>
+    /// Global multiplier on damage enemies deal. 1.0 is the game as written; below 1.0 stands in for player advantages the
+    /// simulator does not model (potions, relics, better play), tuned so whole-act results match real players.
+    /// </summary>
+    public double EnemyDamageScale { get; }
+
+    public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed, int maxEnergy = 3, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0)
     {
         Rng = new SimRng(seed);
         Ascension = ascension;
+        EnemyDamageScale = enemyDamageScale;
         Hp = hp;
         MaxHp = maxHp;
         MaxEnergy = maxEnergy;
@@ -111,7 +118,7 @@ public sealed class Combat
         double d = Math.Max(0, baseDamage + attacker.Powers[(int)PowerKind.Strength]);
         if (attacker.Powers[(int)PowerKind.Weak] > 0) d *= 0.75;
         if (PlayerPowers[(int)PowerKind.Vulnerable] > 0) d *= 1.5;
-        return (int)Math.Floor(d);
+        return (int)Math.Floor(d * EnemyDamageScale);
     }
 
     /// <summary>Total damage the enemies' visible intents will do to the player if nothing is blocked.</summary>

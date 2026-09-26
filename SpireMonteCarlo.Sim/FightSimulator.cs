@@ -6,10 +6,10 @@ public static class FightSimulator
 {
     /// <summary>Plays one whole combat with the bot and reports how it went. <paramref name="trace"/> receives a readable play-by-play.</summary>
     public static FightResult Run(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters,
-        int ascension, ulong seed, BasicBot? bot = null, Action<string>? trace = null, IReadOnlyList<int>? altStarts = null)
+        int ascension, ulong seed, BasicBot? bot = null, Action<string>? trace = null, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0)
     {
         bot ??= new BasicBot();
-        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts);
+        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale);
         while (combat.Result == CombatResult.Ongoing)
         {
             if (trace != null) TraceTurnStart(combat, trace);

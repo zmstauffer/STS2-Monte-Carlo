@@ -103,9 +103,20 @@ Simulator decisions (owner, from the design discussion):
 - Card-reward skips are not a flat rate. The chance of skipping should rise as the deck fills and as a card fits the deck worse: few skips early, more later. The Codex per-act pick rates (`pick_rate_by_act`) and the ~35–38% overall skip rate are calibration targets, not the rule itself.
 - Rest sites: rest below ~50% HP, otherwise upgrade.
 - Speed matters: the simulation must run many fights per decision, so it needs to use all CPU cores.
-- Engine: the game's own combat code can't run outside Godot (see `spikes/headless-combat/README.md`). Remaining choice is a lean own engine (data-driven from Codex card/monster data) versus a second headless game process.
+- Engine: chosen and built as a lean own engine (`SpireMonteCarlo.Sim`), data-driven from Codex plus the decompiled game. The game's own combat code can't run outside Godot (see `spikes/headless-combat/README.md`).
 
-Next: the first simulator milestone (one character, Act 1, card rewards). Still to define later: the IPC between the mod and the app.
+Simulator status (an end-to-end pipeline exists, but it is not yet trustworthy enough to act on):
+
+- What exists: `advisor advise <snapshot>` runs thousands of simulated futures of the rest of the act for each offered card and for skipping, on shared random seeds, and reports survival, HP left, the paired difference from skipping and its uncertainty. About 40,000 whole-act rollouts per second on all cores. Supporting commands: `advisor sim extract` (reads the decompiled game), `sim fight`, `sim encounters`, `sim calibrate`, `sim calibrate-run`.
+- Engine rules follow the decompiled game (damage/block math, debuff timing, Ritual skipping its first trigger). Card effects are derived automatically from Codex numbers (`CardLibrary`), with `Approximate` set on cards whose text says more; `Overrides.cs` holds hand fixes (only Body Slam so far).
+- Monster AI is extracted from the decompiled classes (`MonsterAiExtractor`): weighted random branches, repeat rules, staggered starts, alternate starts. Codex's own state machines are unreliable (missing links and weights). Encounter lineups come from the decompiled encounter classes, with the 6 random Act 1 ones written by hand in `EncounterLibrary`. Extracted data is only ever written to the local cache.
+- The game decides the act's upcoming encounters when the act starts (`ActModel._rooms`), so snapshots now carry an `ActPlan` (remaining normal/elite encounters in draw order, boss, second boss) and the live `Odds` counters. The rollout uses them when present and samples otherwise.
+- Rollout policies: route chosen by a value DP over the map plus randomness; rest below 50% HP else upgrade the best card; card rewards picked by Bradley-Terry over a10 Elo with a skip option whose Elo grows with deck size (fit to the Codex per-act skip rates: about 25% Act 1, 42% Act 2, 52% Act 3); `?` rooms roll with the game's real odds. Shops, events, treasure, potions, and relics are not modelled yet.
+- Calibration: against real Ironclad encounter stats, normal fights track well (rank correlation ~0.75) but elites and bosses do not (~0.1 and ~0.3). The raw simulated player is far weaker than a real one (Act 1 survival ~8% vs ~65%), so the rollout multiplies the player's HP pool by `ActRollout.PlayerHpScale` (2.0) as a stand-in for everything unmodelled. Scaling the HP pool (not enemy damage) keeps self-damage cards like Offering priced consistently. A value closer to 1.0 would mean a better model.
+- Known gaps that limit trust: about 14 monster mechanics in Act 1 elites/bosses are ignored (Slow, Asleep, Minion, Territorial, Hardened Shell, Slippery, Intangible, Skittish, Infested, Shriek, Plow, Ringing, Steam Eruption, Vigor), so Lagavulin never attacks and Effigy is over-hard; many card texts are approximate; the bot never uses potions. Result: the advice currently sees "any decent card beats skipping" but cannot yet rank good cards (Elo says Offering ≫ Iron Wave; the simulation cannot tell them apart).
+- Next fidelity work, in rough order of payoff: the Act 1 elite/boss mechanics above; hand-checked recipes for the ~87 Ironclad cards (start with the top-Elo ones); potions and a smarter (one-turn planning) bot; then shops, events, and Act 2.
+
+Next: improve fidelity as listed, checking each step with `sim calibrate` and `sim calibrate-run`. Still to define later: the IPC between the mod and the app, and turning reports into plain-language explanations in the overlay.
 
 ## Notes on the original codebase
 

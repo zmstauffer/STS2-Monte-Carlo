@@ -64,6 +64,7 @@ public static class SnapshotBuilder
 				snapshot.Run.Seed = runState.Rng?.StringSeed ?? "";
 				snapshot.Map = BuildMap(runState);
 				snapshot.Plan = BuildPlan(runState);
+				snapshot.Odds = BuildOdds(runState);
 			}
 		}
 		catch (Exception ex)
@@ -71,6 +72,23 @@ public static class SnapshotBuilder
 			Plugin.Log($"SnapshotBuilder: could not read run state extras: {ex.Message}");
 		}
 		return snapshot;
+	}
+
+	private static OddsSnapshot BuildOdds(RunState runState)
+	{
+		var odds = new OddsSnapshot();
+		try
+		{
+			odds.UnknownMonster = runState.Odds.UnknownMapPoint.MonsterOdds;
+			odds.UnknownTreasure = runState.Odds.UnknownMapPoint.TreasureOdds;
+			odds.UnknownShop = runState.Odds.UnknownMapPoint.ShopOdds;
+			odds.CardRarityOffset = runState.Players.First().PlayerOdds.CardRarity.CurrentValue;
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log($"SnapshotBuilder: could not read odds: {ex.Message}");
+		}
+		return odds;
 	}
 
 	/// <summary>Reads the act's pre-shuffled encounter lists (ActModel._rooms) and drops the ones already visited.</summary>

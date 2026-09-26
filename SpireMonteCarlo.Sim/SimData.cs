@@ -5,17 +5,36 @@ namespace SpireMonteCarlo.Sim;
 /// <summary>Everything the simulator reads from the local Codex cache, loaded once and shared read-only.</summary>
 public sealed class SimData
 {
+    public const string EloBracket = "a10";
+
     public CardLibrary Cards { get; }
     public MonsterLibrary Monsters { get; }
     public EncounterLibrary Encounters { get; }
     public IReadOnlyDictionary<string, CodexCharacter> Characters { get; }
 
+    private readonly IReadOnlyDictionary<string, CodexCard> _codexCards;
+    private readonly IReadOnlyDictionary<string, CodexMetricRow> _cardMetrics;
+    private readonly Dictionary<string, RewardPool> _pools = new(StringComparer.OrdinalIgnoreCase);
+
     public SimData(CodexCache cache)
     {
-        Cards = new CardLibrary(cache.LoadCards());
+        _codexCards = cache.LoadCards();
+        Cards = new CardLibrary(_codexCards);
         Monsters = new MonsterLibrary(cache.LoadMonsters(), cache.LoadMonsterAi());
         Encounters = new EncounterLibrary(cache.LoadEncounters(), cache.LoadEncounterLineups());
         Characters = cache.LoadCharacters();
+        _cardMetrics = cache.LoadMetrics("cards", EloBracket);
+    }
+
+    /// <summary>The cards a character can be offered as rewards, with their Elo.</summary>
+    public RewardPool PoolFor(string character)
+    {
+        lock (_pools)
+        {
+            if (!_pools.TryGetValue(character, out RewardPool? pool))
+                _pools[character] = pool = new RewardPool(_codexCards, _cardMetrics, character);
+            return pool;
+        }
     }
 
     /// <summary>Parses "STRIKE_IRONCLAD*5,DEFEND_IRONCLAD*4,BASH+" (a trailing + means upgraded, *N repeats) into card defs.</summary>

@@ -15,6 +15,7 @@ public static class SimCommands
             case "extract": return Extract(args.Skip(1).ToArray());
             case "fight": return Fight(args.Skip(1).ToArray());
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
+            case "calibrate-run": return CalibrateRun(args.Skip(1).ToArray());
             case "encounters": return ListEncounters(args.Skip(1).ToArray());
             default:
                 Console.Error.WriteLine("Usage: advisor sim <extract [--decompiled <dir>] | encounters [act] | fight --encounter <ID> [--n N] [--ascension A] [--hp N] [--deck SPEC] [--seed S]>");
@@ -139,6 +140,68 @@ public static class SimCommands
             if (subset.Count >= 3)
                 Console.WriteLine($"  {room,-8} n={subset.Count,2}  damage {Spearman(subset.Select(r => r.simDamage).ToArray(), subset.Select(r => r.realDamage).ToArray()):F2}   turns {Spearman(subset.Select(r => r.simTurns).ToArray(), subset.Select(r => r.realTurns).ToArray()):F2}");
         }
+        return 0;
+    }
+
+    /// <summary>
+    /// Whole-act check: Ironclad rollouts from the start of Act 1 (starter deck, default policies), comparing how often
+    /// each encounter kills the run with how often it kills real Ironclad players. Needs a snapshot for its map.
+    /// </summary>
+    private static int CalibrateRun(string[] args)
+    {
+        string? mapPath = Option(args, "--map");
+        var cache = new CodexCache();
+        SimData? data = Load();
+        if (data == null || mapPath == null || !File.Exists(mapPath))
+        {
+            Console.Error.WriteLine("Usage: advisor sim calibrate-run --map <snapshot.json with an Act 1 map> [--n N] [--ascension A]");
+            return 1;
+        }
+        int n = int.Parse(Option(args, "--n") ?? "6000");
+        int ascension = int.Parse(Option(args, "--ascension") ?? "10");
+        var stats = cache.LoadEncounterStats();
+        CodexCharacter ironclad = data.Characters["IRONCLAD"];
+        List<CardDef> deck = data.ParseDeck(string.Join(",", ironclad.StartingDeck.Select(DecompiledExtractor.ToSnakeCase)));
+
+        var rollouts = new List<ActRollout>();
+        foreach (string variant in new[] { "OVERGROWTH", "UNDERDOCKS" })
+        {
+            Contracts.RunSnapshot snap = Contracts.SnapshotSerializer.Deserialize(File.ReadAllText(mapPath));
+            snap.Run.Character = "ironclad"; snap.Run.Ascension = ascension; snap.Run.Act = 1;
+            snap.Run.CurrentHp = snap.Run.MaxHp = ironclad.StartingHp;
+            snap.Relics = new List<string> { "BURNING_BLOOD" };
+            snap.Map!.Current = null; snap.Map.Visited = new();
+            snap.Odds = null;
+            snap.Plan = new Contracts.ActPlan { ActId = variant };
+            rollouts.Add(new ActRollout(data, snap) { PlayerHpScale = double.Parse(Option(args, "--hp-scale") ?? ActRollout.CalibratedPlayerHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture) });
+        }
+
+        var results = new RolloutResult[n];
+        Parallel.For(0, n, i => results[i] = rollouts[i % rollouts.Count].Run(deck, SimRng.Mix(3, (ulong)i)));
+
+        int survived = results.Count(r => r.Survived);
+        Console.WriteLine($"Ironclad, Act 1 from the start, A{ascension}, {n} rollouts: survive {100.0 * survived / n:F1}%, mean HP left when surviving {results.Where(r => r.Survived).DefaultIfEmpty().Average(r => r?.HpEnd ?? 0):F0}");
+
+        var fights = results.SelectMany(r => r.Encounters).GroupBy(e => e).ToDictionary(g => g.Key, g => g.Count());
+        var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());
+        Console.WriteLine($"{"encounter",-32} {"room",-8} {"fights",7} {"sim fatal%",11} {"real fatal%",12}");
+        foreach (var (id, count) in fights.OrderByDescending(kv => kv.Value))
+        {
+            if (count < n / 40 || !data.Encounters.Contains(id)) continue;
+            CodexCharacterStat? real = stats.TryGetValue(id, out CodexEncounterStat? s) ? s.Characters.FirstOrDefault(c => c.Character == "IRONCLAD") : null;
+            double simFatal = 100.0 * deaths.GetValueOrDefault(id) / count;
+            Console.WriteLine($"{id,-32} {data.Encounters.Get(id).RoomType,-8} {count,7} {simFatal,11:F1} {(real == null ? "" : (100.0 * real.Fatal / real.Total).ToString("F1")),12}");
+        }
+        Console.WriteLine();
+        Console.WriteLine("By fight number (all rollouts that reached it):   HP before   HP lost   deck size   alive");
+        for (int k = 0; k < 14; k++)
+        {
+            var reached = results.Where(r => r.Log.Count > k).Select(r => r.Log[k]).ToList();
+            if (reached.Count < n / 50) break;
+            Console.WriteLine($"  fight {k + 1,2}: {reached.Count,5} runs    {reached.Average(e => e.HpBefore),6:F1}   {reached.Average(e => e.HpBefore - e.HpAfter),8:F1}   {reached.Average(e => e.DeckSize),9:F1}   {100.0 * reached.Count(e => e.HpAfter > 0) / reached.Count,5:F1}%");
+        }
+        Console.WriteLine();
+        Console.WriteLine($"Died on: normal {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Get(r.DiedTo).RoomType == "Monster") / n:F1}%   elite {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Get(r.DiedTo).RoomType == "Elite") / n:F1}%   boss {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Get(r.DiedTo).RoomType == "Boss") / n:F1}%");
         return 0;
     }
 

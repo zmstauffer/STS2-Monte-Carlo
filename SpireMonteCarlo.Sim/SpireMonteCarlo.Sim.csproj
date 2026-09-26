@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SpireMonteCarlo.Codex\SpireMonteCarlo.Codex.csproj" />
+    <ProjectReference Include="..\SpireMonteCarlo.Contracts\SpireMonteCarlo.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

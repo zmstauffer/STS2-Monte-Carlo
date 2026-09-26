@@ -33,6 +33,8 @@ public sealed class RunSnapshot
 
     /// <summary>The upcoming encounters of the current act; null when it couldn't be read.</summary>
     public ActPlan? Plan { get; set; }
+
+    public OddsSnapshot? Odds { get; set; }
 }
 
 public static class DecisionType
@@ -143,4 +145,15 @@ public sealed class ActPlan
     public string? SecondBoss { get; set; }
     /// <summary>Event rooms not yet visited, in draw order.</summary>
     public List<string> Events { get; set; } = new();
+}
+
+/// <summary>The game's running odds counters, which decide what future rooms and rewards look like.</summary>
+public sealed class OddsSnapshot
+{
+    /// <summary>Chance the next "?" room is a monster fight (starts at 0.1, grows while it isn't rolled).</summary>
+    public float UnknownMonster { get; set; }
+    public float UnknownTreasure { get; set; }
+    public float UnknownShop { get; set; }
+    /// <summary>Added to the rare-card chance of card rewards; starts at -0.05 and grows until a rare is offered.</summary>
+    public float CardRarityOffset { get; set; }
 }
