@@ -176,4 +176,16 @@ public class AdviceEngineTests
             Assert.InRange(AdviceEngine.ValueOf(Result(2.0, 0.8), act), 0.0, 1.0);
         }
     }
+
+    [Fact]
+    public void AnUpgradesLaterWorthGrowsWithTheHpItSavesAndThroughTheActAndIsZeroInActThree()
+    {
+        var early = new SpireMonteCarlo.Contracts.RunSnapshot { Run = new SpireMonteCarlo.Contracts.RunInfo { Act = 1, TotalFloor = 2 } };
+        var late = new SpireMonteCarlo.Contracts.RunSnapshot { Run = new SpireMonteCarlo.Contracts.RunInfo { Act = 1, TotalFloor = 16 } };
+        var last = new SpireMonteCarlo.Contracts.RunSnapshot { Run = new SpireMonteCarlo.Contracts.RunInfo { Act = 3, TotalFloor = 40 } };
+        Assert.True(AdviceEngine.UpgradeLaterPoints(late, 2, 80) > AdviceEngine.UpgradeLaterPoints(late, 1, 80));
+        Assert.True(AdviceEngine.UpgradeLaterPoints(late, 2, 80) > AdviceEngine.UpgradeLaterPoints(early, 2, 80));
+        Assert.Equal(0, AdviceEngine.UpgradeLaterPoints(last, 2, 80));
+        Assert.Equal(0, AdviceEngine.UpgradeLaterPoints(late, double.NaN, 80));
+    }
 }

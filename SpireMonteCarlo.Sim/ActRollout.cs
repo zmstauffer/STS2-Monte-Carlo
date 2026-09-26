@@ -156,6 +156,35 @@ public sealed class ActRollout
         _testBossPool = testEncounters.Where(e => e.RoomType == "Boss").Select(e => e.Id).ToArray();
     }
 
+    /// <summary>
+    /// A deck's average real HP lost per fight against the deck test's fights (the next act's elites and a boss, each from full HP, a lost
+    /// fight counting as all of it), over <paramref name="seeds"/> fixed seeds: the same fights for every deck, so decks that differ by one
+    /// upgrade are compared without the noise of different futures. NaN when there is no test (Act 3).
+    /// </summary>
+    public double TestDeck(RolloutStart start, int seeds)
+    {
+        if (_nextElitePool.Length == 0) return double.NaN;
+        var relics = start.Relics.Select(RelicRules.Parse).Where(k => k != RelicKind.Unknown).ToList();
+        var potions = start.Potions.Select(PotionLibrary.Find).OfType<PotionDef>().ToList();
+        int maxHp = (int)Math.Round(start.MaxHp * ProbeHpScale);
+        var fights = _nextElitePool.Concat(_testBossPool).Where(_data.Encounters.Contains).ToList();
+        double lost = 0;
+        int count = 0;
+        for (int s = 0; s < seeds; s++)
+            foreach (string id in fights)
+            {
+                EncounterDef encounter = _data.Encounters.Get(id);
+                ulong seed = SimRng.Mix(0x7E57, (ulong)(s * 1009 + fights.IndexOf(id)));
+                string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(seed, 1)));
+                if (lineup.Any(m => !_data.Monsters.Contains(m))) continue;
+                FightResult r = FightSimulator.Run(start.Deck, maxHp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, seed, _bot, altStarts: encounter.AltStarts,
+                    services: _data.Services, potions: potions, stakes: encounter.RoomType == "Boss" ? 2 : 1, relics: relics, hpScale: ProbeHpScale);
+                lost += (r.Won ? Math.Min(r.HpLost, maxHp) : maxHp) / ProbeHpScale;
+                count++;
+            }
+        return count == 0 ? double.NaN : lost / count;
+    }
+
     private static string DefaultVariant(int act) => act switch { 1 => "Overgrowth", 2 => "Hive", _ => "Glory" };
 
     /// <summary>True when the snapshot lists the actual upcoming encounters (otherwise they are sampled).</summary>

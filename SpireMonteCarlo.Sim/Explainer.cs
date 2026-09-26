@@ -53,7 +53,7 @@ public static class Explainer
         {
             (Part.ThisAct, thisAct, $"from surviving this act ({Pct(best.SurvivalRate)} vs {Pct(next.SurvivalRate)})"),
             (Part.RestOfRun, restOfRun, "from the deck and HP it leaves for the rest of the run"),
-            (Part.Later, later, "from the cards' worth later in the run (real players' ratings)"),
+            (Part.Later, later, "from worth later in the run"),
         };
     }
 

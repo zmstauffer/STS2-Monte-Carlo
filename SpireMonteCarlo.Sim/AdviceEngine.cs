@@ -86,8 +86,8 @@ public sealed class AdviceReport
     public IReadOnlyList<string> UnknownCards { get; init; } = Array.Empty<string>();
 }
 
-/// <summary>One choice the player could make: a label and the state of the run after making it.</summary>
-public sealed record DecisionOption(string Label, string? CardId, RolloutStart Start);
+/// <summary>One choice the player could make: a label, the state of the run after making it, and any worth later in the run the rollouts can't see (an upgrade's, from <see cref="AdviceEngine.UpgradeLaterPoints"/>).</summary>
+public sealed record DecisionOption(string Label, string? CardId, RolloutStart Start, double LaterPoints = 0);
 
 public static class AdviceEngine
 {
@@ -140,6 +140,19 @@ public static class AdviceEngine
         return Logistic(Logit(Act3WinRate) + StrengthSlope * (s - Act2DeckStrength) + HpSlope * (hpShare - Act2HpShare));
     }
 
+    // How much the run's value moves per unit of deck strength (1 - share of HP lost in the deck test), from ValueOf at average decks:
+    // V x ((1 - P(Act 2)) + (1 - P(Act 3))) x 5.93 with V ~0.5, P(Act 2) ~0.6, P(Act 3) ~0.84.
+    private const double RunValuePerStrength = 1.66;
+
+    /// <summary>
+    /// An upgrade's worth after the current act, in points: the HP per test fight it saves the current deck (<see cref="ActRollout.TestDeck"/>,
+    /// same fights for every deck) as deck strength, at <see cref="RunValuePerStrength"/>, for the share of the run after this act. Half is
+    /// counted because the rollouts' end-of-act deck test sees part of it too (the same halving as the cards' Elo worth). Codex has no
+    /// ratings for upgraded cards, and without this the upgrade screen went flat late in an act, where the rollouts barely tell upgrades apart.
+    /// </summary>
+    public static double UpgradeLaterPoints(RunSnapshot snapshot, double hpSavedPerFight, double maxHp) =>
+        double.IsNaN(hpSavedPerFight) || maxHp <= 0 ? 0 : 0.5 * 100 * RunValuePerStrength * hpSavedPerFight / maxHp * ShareAfterThisAct(snapshot.Run);
+
     /// <summary>Share of the rest of the run that comes after the current act (acts are 17 floors, the run 3 acts).</summary>
     public static double ShareAfterThisAct(RunInfo run)
     {
@@ -190,7 +203,7 @@ public static class AdviceEngine
         var results = new RolloutResult[options.Count][];
         for (int j = 0; j < options.Count; j++) results[j] = new RolloutResult[rollouts];
         int act0 = snapshot.Run.Act;
-        double[] laterPoints = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck)).ToArray();
+        double[] laterPoints = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck) + o.LaterPoints).ToArray();
 
         void RunFutures(int from, int to, IReadOnlyList<int> which) => Parallel.For(from, to, i =>
         {

@@ -22,7 +22,7 @@ public class ExplainerTests
         Assert.StartsWith("ANGER beats Skip by 2.0 points:", lines[0]);
         Assert.Contains("from surviving this act (97% vs 94%)", lines[0]);
         Assert.Contains("from the deck and HP it leaves for the rest of the run", lines[0]);
-        Assert.Contains("later in the run", lines[0]);
+        Assert.Contains("from worth later in the run", lines[0]);
     }
 
     [Fact]

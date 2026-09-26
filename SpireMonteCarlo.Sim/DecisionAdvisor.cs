@@ -67,8 +67,7 @@ public static class DecisionAdvisor
         int heal = (int)(0.3 * rest.MaxHp) + (snapshot.Relics.Contains("REGAL_PILLOW") ? 15 : 0);
         rest.Hp = Math.Min(rest.MaxHp, rest.Hp + heal);
         var options = new List<DecisionOption> { new($"Rest (heal {rest.Hp - start.Hp:F0} HP)", null, rest) };
-        foreach ((int index, CardDef card) in UpgradeCandidates(deck))
-            options.Add(new DecisionOption($"Upgrade {card.Id}", null, Upgraded(data, start, index)));
+        options.AddRange(UpgradeOptions(data, snapshot, rollout, start, deck));
         return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed, reuse: true);
     }
 
@@ -78,10 +77,24 @@ public static class DecisionAdvisor
         List<CardDef> deck = DeckOf(data, snapshot);
         RolloutStart start = rollout.InitialStart(deck);
         var options = new List<DecisionOption> { new("Upgrade nothing", null, start) };
-        foreach ((int index, CardDef card) in UpgradeCandidates(deck))
-            options.Add(new DecisionOption($"Upgrade {card.Id}", null, Upgraded(data, start, index)));
+        options.AddRange(UpgradeOptions(data, snapshot, rollout, start, deck));
         // After "Smith" at a rest site the upgrades were just simulated for the rest site's screen; those futures are reused.
         return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed, reuse: true);
+    }
+
+    /// <summary>How many seeds of the deck test each upgrade gets (x the test's fights, the same for every upgrade). 10 was too noisy to order the top upgrades; 20 and 40 agree. Env UPGRADE_TEST_SEEDS overrides it for experiments.</summary>
+    private static readonly int UpgradeTestSeeds = int.Parse(Environment.GetEnvironmentVariable("UPGRADE_TEST_SEEDS") ?? "40");
+
+    /// <summary>One option per distinct upgradable card, each with its worth later in the run from the upgrade test (<see cref="AdviceEngine.UpgradeLaterPoints"/>).</summary>
+    private static List<DecisionOption> UpgradeOptions(SimData data, RunSnapshot snapshot, ActRollout rollout, RolloutStart start, List<CardDef> deck)
+    {
+        var candidates = UpgradeCandidates(deck).ToList();
+        var starts = candidates.Select(c => Upgraded(data, start, c.Index)).ToList();
+        var tested = new double[starts.Count + 1];
+        Parallel.For(0, starts.Count + 1, k => tested[k] = rollout.TestDeck(k == 0 ? start : starts[k - 1], UpgradeTestSeeds));
+        double realMaxHp = start.MaxHp;
+        return candidates.Select((c, k) => new DecisionOption($"Upgrade {c.Card.Id}", null, starts[k],
+            AdviceEngine.UpgradeLaterPoints(snapshot, tested[0] - tested[k + 1], realMaxHp))).ToList();
     }
 
     // ---- map ----
