@@ -201,7 +201,7 @@ public static class AdviceEngine
         // With many options (a shop's bundles), screen them all on a fifth of the futures first and give the full count only to the
         // baseline and the best few; the rest are reported from the screening futures. A 24-option shop took over a minute before.
         var all = Enumerable.Range(0, options.Count).ToList();
-        int screen = options.Count > ScreenAbove ? Math.Max(100, rollouts / 5) : rollouts;
+        int screen = options.Count > ScreenAbove ? Math.Min(rollouts, Math.Max(100, rollouts / 5)) : rollouts;
         RunFutures(0, screen, all);
         if (screen < rollouts)
         {
