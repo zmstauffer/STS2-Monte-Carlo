@@ -158,11 +158,20 @@ public static class AdviceEngine
             Rollouts = rollouts,
             ExactPlan = rollout.HasExactPlan,
             BaselineLabel = options[0].Label,
-            Notes = notes ?? Array.Empty<string>(),
+            Notes = (notes ?? Array.Empty<string>()).Concat(ActNotes(snapshot.Run.Act)).ToList(),
             ApproximateCards = options.SelectMany(o => o.Start.Deck).Where(c => c.Approximate).Distinct().Count(),
             UnmodelledFights = results.SelectMany(r => r).Sum(r => r.UnmodelledFights) / options.Count,
             UnknownCards = data.Cards.UnknownIds.ToList(),
         };
+    }
+
+    /// <summary>What the reader should know about how far to trust the simulator in this act.</summary>
+    private static IEnumerable<string> ActNotes(int act)
+    {
+        if (act == 2)
+            yield return "Act 2 monsters come from the game's classes, but the simulated decks are weaker than real Act 2 decks and some boss mechanics (racing the Insatiable's sandpit, the Decimillipede's segments) are played badly, so read the comparison between options rather than the absolute survival numbers.";
+        else if (act >= 3)
+            yield return "Act 3 is only roughly modelled (several monster mechanics are missing and the fights come out much harder than in the real game); treat this advice as a rough guide.";
     }
 
     private static string RoomOf(SimData data, string encounter) => data.Encounters.Contains(encounter) ? data.Encounters.Get(encounter).RoomType : "";

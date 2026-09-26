@@ -107,6 +107,50 @@ public sealed partial class Combat
         if (spark > 0) PlayerPowers[(int)PowerKind.Tainted] += spark;
     }
 
+    /// <summary>After a card: Enrage (Test Subject) feeds on Skills; Galvanic (Globe Head) makes playing a Power hurt.</summary>
+    private void AfterCardEnemyPowers(CardDef card)
+    {
+        if (card.Kind == CardKind.Skill)
+        {
+            foreach (Enemy e in Enemies)
+                if (e.Alive && e.Powers[(int)PowerKind.Enrage] > 0) e.Powers[(int)PowerKind.Strength] += e.Powers[(int)PowerKind.Enrage];
+        }
+        else if (card.Kind == CardKind.Power)
+        {
+            int galvanic = 0;
+            foreach (Enemy e in Enemies) if (e.Alive) galvanic = Math.Max(galvanic, e.Powers[(int)PowerKind.Galvanic]);
+            if (galvanic > 0) HitPlayer(galvanic, null);
+        }
+    }
+
+    /// <summary>End of the enemy phase for monsters with a turn-based power: Nemesis alternates Intangible on and off; High Voltage adds Strength.</summary>
+    private void EndOfEnemyTurnPowers()
+    {
+        foreach (Enemy e in Enemies)
+        {
+            if (!e.Alive) continue;
+            e.Powers[(int)PowerKind.Strength] += e.Powers[(int)PowerKind.HighVoltage];
+            if (e.Powers[(int)PowerKind.Nemesis] > 0)
+            {
+                bool on = e.State.GetValueOrDefault("nemesisOn") == 0;
+                e.State["nemesisOn"] = on ? 1 : 0;
+                e.Powers[(int)PowerKind.Intangible] = on ? 2 : 0;   // 2 because it ticks down right after this
+            }
+        }
+    }
+
+    /// <summary>Rampart (Living Shield): at the start of the player's turn it gives every Turret Operator block.</summary>
+    private void RampartAtTurnStart()
+    {
+        foreach (Enemy shield in Enemies)
+        {
+            int amount = shield.Powers[(int)PowerKind.Rampart];
+            if (!shield.Alive || amount <= 0) continue;
+            foreach (Enemy e in Enemies)
+                if (e.Alive && e.Def.Id == "TURRET_OPERATOR") e.Block += amount;
+        }
+    }
+
     /// <summary>The Insatiable's sandpit counts down as each enemy turn starts; at 0 the player is swallowed.</summary>
     private void SandpitCountdown()
     {
@@ -120,13 +164,14 @@ public sealed partial class Combat
     }
 
     /// <summary>Adds a monster to the fight (a summon or a split); it may arrive stunned, as the Wrigglers from an infested monster do.</summary>
-    public Enemy? Spawn(string monsterId, bool arrivesStunned = false, string? slot = null)
+    public Enemy? Spawn(string monsterId, bool arrivesStunned = false, string? slot = null, Action<Enemy>? configure = null)
     {
         MonsterDef? def = _services?.Monster(monsterId);
         if (def == null) return null;
         Enemy spawned = CreateEnemy(def);
         spawned.AltStart = arrivesStunned;
         spawned.SlotName = slot;
+        configure?.Invoke(spawned);
         Enemies.Add(spawned);
         spawned.Start(this);
         MonsterBehaviors.For(def.Id)?.OnStart(this, spawned);
@@ -144,13 +189,26 @@ public sealed partial class Combat
         }
         // Constrict lasts only while the monster that applied it lives (the Slithering Strangler is the only one that does).
         if (dead.Def.Id == "SLITHERING_STRANGLER") PlayerPowers[(int)PowerKind.Constrict] = 0;
+        if (dead.Def.Id == "SPECTRAL_KNIGHT") PlayerPowers[(int)PowerKind.Hex] = 0;
     }
 
     /// <summary>Suck (Fossil Stalker): every attack hit that gets through block feeds it Strength.</summary>
     private void AfterEnemyAttackHits(Enemy e, int hitsThroughBlock)
     {
+        if (hitsThroughBlock <= 0) return;
         int suck = e.Powers[(int)PowerKind.Suck];
-        if (suck > 0 && hitsThroughBlock > 0) e.Powers[(int)PowerKind.Strength] += suck * hitsThroughBlock;
+        if (suck > 0) e.Powers[(int)PowerKind.Strength] += suck * hitsThroughBlock;
+
+        // Paper Cuts (Scroll of Biting): each hit that gets through costs max HP for the rest of the run.
+        int cuts = e.Powers[(int)PowerKind.PaperCuts];
+        if (cuts > 0)
+        {
+            MaxHp = Math.Max(1, MaxHp - Scaled(cuts * hitsThroughBlock));
+            Hp = Math.Min(Hp, MaxHp);
+        }
+        // Painful Stabs (Test Subject): each hit that gets through adds Wounds to the discard pile.
+        int stabs = e.Powers[(int)PowerKind.PainfulStabs];
+        if (stabs > 0) AddCards(new CardAdd("WOUND", AddPile.Discard, stabs * hitsThroughBlock));
     }
 
     /// <summary>Constrict hurts at the end of each of the player's turns; Tangled and its extra attack cost last only through this turn.</summary>

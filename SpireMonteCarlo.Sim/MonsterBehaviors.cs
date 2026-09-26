@@ -41,6 +41,8 @@ public static class MonsterBehaviors
 
     static MonsterBehaviors()
     {
+        Register("AXEBOT", new AxebotBehavior());
+        Register("OWL_MAGISTRATE", new OwlMagistrateBehavior());
         Register("GREMLIN_MERC", new GremlinMercBehavior());
         Register("ENTOMANCER", new EntomancerBehavior());
         Register("KNOWLEDGE_DEMON", new KnowledgeDemonBehavior());

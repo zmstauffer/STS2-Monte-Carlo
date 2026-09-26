@@ -188,6 +188,7 @@ public sealed partial class Combat
             RelicAfterCard(card, costPaid);
             AfterCardTender();
             AfterCardTainted(card);
+            AfterCardEnemyPowers(card);
             if (card.CostsMoreEachPlay) card.CostIncreaseThisCombat++;
             ResolveCurlUps();
         }

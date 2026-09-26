@@ -176,3 +176,25 @@ public sealed class GremlinMercBehavior : MonsterBehavior
         return false;
     }
 }
+
+/// <summary>Axebots (StockPower): each starts with a stock of 2; when one dies a new Axebot with one less takes its place.</summary>
+public sealed class AxebotBehavior : MonsterBehavior
+{
+    public override IReadOnlyCollection<string> Handled => new[] { "Stock" };
+
+    public override void OnStart(Combat combat, Enemy self)
+    {
+        if (!self.State.ContainsKey("stockSet")) self.Powers[(int)PowerKind.Stock] = 2;
+    }
+}
+
+/// <summary>The Owl Magistrate (SoarPower): Judicial Flight makes it take half damage from attacks until Verdict brings it down.</summary>
+public sealed class OwlMagistrateBehavior : MonsterBehavior
+{
+    public override IReadOnlyCollection<string> Handled => new[] { "PowerCmd.Remove<SoarPower>" };
+
+    public override void OnMove(Combat combat, Enemy self, MoveDef move)
+    {
+        if (move.Id == "VERDICT") self.Powers[(int)PowerKind.Soar] = 0;
+    }
+}

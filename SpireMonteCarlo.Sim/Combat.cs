@@ -203,7 +203,7 @@ public sealed partial class Combat
         {
             if (target.Powers[(int)PowerKind.Vulnerable] > 0) d *= VulnerableMultiplier + PlayerPowers[(int)PowerKind.Cruelty] / 100.0;
             if (target.Powers[(int)PowerKind.Slow] > 0) d *= 1 + 0.1 * target.SlowCards;
-            if (target.Powers[(int)PowerKind.Flutter] > 0) d *= 0.5;
+            if (target.Powers[(int)PowerKind.Flutter] > 0 || target.Powers[(int)PowerKind.Soar] > 0) d *= 0.5;
         }
         if (_penNibActive) d *= 2;
         return (int)Math.Floor(d);
@@ -283,7 +283,7 @@ public sealed partial class Combat
 
         foreach (CardDef card in Hand.ToList())
         {
-            if (card.Ethereal) ExhaustCard(card, causedByEthereal: true);
+            if (card.Ethereal || (PlayerPowers[(int)PowerKind.Hex] > 0 && card.Kind is not (CardKind.Status or CardKind.Curse))) ExhaustCard(card, causedByEthereal: true);
             else if (!card.Retain) DiscardPile.Add(card);
             else continue;
             Hand.Remove(card);
@@ -331,6 +331,7 @@ public sealed partial class Combat
         _lostHpThisTurn = false;
         if (PlayerPowers[(int)PowerKind.Barricade] == 0) Block = Has(RelicKind.SturdyClamp) ? Math.Min(Block, 10) : 0;
         if (Turn > 1 && PlayerPowers[(int)PowerKind.Plating] > 0) PlayerPowers[(int)PowerKind.Plating]--;
+        RampartAtTurnStart();
         foreach (Enemy e in Enemies)
         {
             e.SkittishUsed = false;
@@ -512,6 +513,8 @@ public sealed partial class Combat
             return;
         }
         e.Hp = 0;
+        int stock = e.Powers[(int)PowerKind.Stock];
+        if (stock > 0) Spawn("AXEBOT", slot: e.SlotName, configure: n => { n.Powers[(int)PowerKind.Stock] = stock - 1; n.State["stockSet"] = 1; });
         RelicOnEnemyDeath();
         OnAllyDied(e);
         foreach (Enemy ally in Enemies.ToList())
@@ -569,6 +572,8 @@ public sealed partial class Combat
             e.Block += e.Powers[(int)PowerKind.Plating] + e.Powers[(int)PowerKind.Metallicize];
             e.Advance();
         }
+
+        EndOfEnemyTurnPowers();
 
         // End of the enemy side's turn: debuffs count down on everyone, and turn-long effects wear off.
         PlayerPowers[(int)PowerKind.Tainted] = 0;
@@ -649,6 +654,7 @@ public sealed partial class Combat
             }
         }
         foreach (CardAdd add in move.Adds) AddCards(add);
+        foreach (string spawn in move.Spawns) Spawn(spawn);
         MonsterBehaviors.For(e.Def.Id)?.OnMove(this, e, move);
 
         if (move.Id == "EXPLODE")

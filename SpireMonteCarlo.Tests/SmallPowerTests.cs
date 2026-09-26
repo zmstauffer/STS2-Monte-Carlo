@@ -103,6 +103,81 @@ public class SmallPowerTests
     }
 
     [Fact]
+    public void HexMakesEveryCardInHandEtherealSoTheyExhaustAtTheEndOfTheTurn()
+    {
+        if (Data == null) return;
+        Combat c = Fight("STRIKE_IRONCLAD,DEFEND_IRONCLAD", Dummy());
+        c.PlayerPowers[(int)PowerKind.Hex] = 2;
+        c.EndPlayerTurn();
+        Assert.Equal(2, c.ExhaustPile.Count(x => x.Id is "STRIKE_IRONCLAD" or "DEFEND_IRONCLAD"));
+    }
+
+    [Fact]
+    public void GalvanicMakesEachPowerCardCostEightHp()
+    {
+        if (Data == null) return;
+        Combat c = Fight("INFLAME", Dummy(innate: new InnatePower(PowerKind.Galvanic, 8)));
+        Play(c, "INFLAME", -1);
+        Assert.Equal(292, c.Hp);
+    }
+
+    [Fact]
+    public void SoarHalvesAttackDamageUntilItIsRemoved()
+    {
+        if (Data == null) return;
+        Combat c = Fight("STRIKE_IRONCLAD", Dummy(innate: new InnatePower(PowerKind.Soar, 1)));
+        Play(c, "STRIKE_IRONCLAD");
+        Assert.Equal(997, c.Enemies[0].Hp);
+    }
+
+    [Fact]
+    public void EnrageGivesStrengthForEverySkillAndHighVoltageForEveryTurn()
+    {
+        if (Data == null) return;
+        Combat c = Fight("DEFEND_IRONCLAD,DEFEND_IRONCLAD", Dummy(innate: new[] { new InnatePower(PowerKind.Enrage, 3), new InnatePower(PowerKind.HighVoltage, 2) }));
+        Play(c, "DEFEND_IRONCLAD");
+        Play(c, "DEFEND_IRONCLAD");
+        Assert.Equal(6, c.Enemies[0].Powers[(int)PowerKind.Strength]);
+        c.EndPlayerTurn();
+        Assert.Equal(8, c.Enemies[0].Powers[(int)PowerKind.Strength]);
+    }
+
+    [Fact]
+    public void NemesisAlternatesIntangibleOnAndOffEachEnemyTurn()
+    {
+        if (Data == null) return;
+        Combat c = Fight("", Dummy(innate: new InnatePower(PowerKind.Nemesis, 1)));
+        c.EndPlayerTurn();
+        Assert.Equal(1, c.Enemies[0].Powers[(int)PowerKind.Intangible]);
+        c.EndPlayerTurn();
+        Assert.Equal(0, c.Enemies[0].Powers[(int)PowerKind.Intangible]);
+    }
+
+    [Fact]
+    public void PaperCutsCostMaxHpAndPainfulStabsAddWoundsForEveryHitThatGetsThrough()
+    {
+        if (Data == null) return;
+        Combat c = Fight("", Dummy(damage: 5, innate: new[] { new InnatePower(PowerKind.PaperCuts, 2), new InnatePower(PowerKind.PainfulStabs, 1) }));
+        c.EndPlayerTurn();
+        Assert.Equal(298, c.MaxHp);
+        Assert.Contains(c.DiscardPile.Concat(c.Hand).Concat(c.DrawPile), x => x.Id == "WOUND");
+    }
+
+    [Fact]
+    public void ADeadAxebotIsReplacedByOneWithALowerStock()
+    {
+        if (Data == null) return;
+        var c = new Combat(Array.Empty<CardDef>(), 300, 300, new[] { Data.Monsters.Get("AXEBOT") }, 10, 3, services: Data.Services);
+        Assert.Equal(2, c.Enemies[0].Powers[(int)PowerKind.Stock]);
+        c.Hand.AddRange(Data.ParseDeck("STRIKE_IRONCLAD").Select(x => x.Instantiate()));
+        c.Enemies[0].Hp = 1;
+        c.Play(0, 0);
+        Assert.Equal(CombatResult.Ongoing, c.Result);
+        Enemy next = c.Enemies.Last(e => e.Alive);
+        Assert.Equal(1, next.Powers[(int)PowerKind.Stock]);
+    }
+
+        [Fact]
     public void KillingTheGremlinMercBringsAFatAndASneakyGremlinAndTheFightGoesOn()
     {
         if (Data == null) return;
