@@ -248,11 +248,39 @@ public static class SimCommands
         snap.Map!.Current = null; snap.Map.Visited = new();
         snap.Odds = null;
         snap.Plan = new Contracts.ActPlan { ActId = "HIVE" };
-        var rollout = new ActRollout(data, snap) { PlayerHpScale = Number("--hp-scale2", ActRollout.CalibratedPlayerHpScale), ProbeHpScale = Number("--probe-scale", ActRollout.CalibratedProbeHpScale) };
+        var rollout = new ActRollout(data, snap) { PlayerHpScale = Number("--hp-scale2", ActRollout.CalibratedPlayerHpScaleAct2), ProbeHpScale = Number("--probe-scale", ActRollout.CalibratedProbeHpScale) };
 
         RolloutResult[] survivors = act1.Where(r => r.Survived && r.End != null).ToArray();
         var results = new RolloutResult[survivors.Length];
-        Parallel.For(0, survivors.Length, i => results[i] = rollout.Run(survivors[i].End!, SimRng.Mix(17, (ulong)i)));
+        if (Option(args, "--only") is { } onlyText)
+        {
+            int only = int.Parse(onlyText);
+            ActRollout.TraceFights = true;
+            rollout.Run(survivors[only].End!, SimRng.Mix(17, (ulong)only));
+            return;
+        }
+        var started = new long[survivors.Length];
+        using var stop = new CancellationTokenSource();
+        if (args.Contains("--watchdog"))
+        {
+            new Thread(() =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    Thread.Sleep(3000);
+                    long now = Environment.TickCount64;
+                    for (int k = 0; k < started.Length; k++)
+                        if (started[k] != 0 && now - started[k] > 10000) Console.Error.WriteLine($"rollout {k} has been running for {(now - started[k]) / 1000}s");
+                }
+            }) { IsBackground = true }.Start();
+        }
+        Parallel.For(0, survivors.Length, i =>
+        {
+            started[i] = Environment.TickCount64;
+            results[i] = rollout.Run(survivors[i].End!, SimRng.Mix(17, (ulong)i));
+            started[i] = 0;
+        });
+        stop.Cancel();
 
         int n = results.Length;
         Console.WriteLine();
@@ -372,6 +400,14 @@ public static class SimCommands
             string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
             Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
             FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot);
+            return 0;
+        }
+
+        if (Option(args, "--audit") is { } auditText)
+        {
+            ulong auditSeed = SimRng.Mix(seed, 0);
+            string[] auditLineup = encounter.Generate(new SimRng(SimRng.Mix(auditSeed, 1)));
+            FightSimulator.Audit(deck, hp, hp, auditLineup.Select(data.Monsters.Get), ascension, auditSeed, int.Parse(auditText), data.Services, Console.WriteLine);
             return 0;
         }
 

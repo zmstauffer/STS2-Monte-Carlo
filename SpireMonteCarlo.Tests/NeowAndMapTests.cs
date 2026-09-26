@@ -184,6 +184,26 @@ public class NeowAndMapTests
     }
 
     [Fact]
+    public void PillageStopsDrawingWhenHellraiserPlaysEveryStrikeItDraws()
+    {
+        if (Data == null) return;
+        SimData data = Data;
+        var monster = new MonsterDef
+        {
+            Id = "DUMMY", HpMin = 500, HpMax = 500, HpMinTough = 500, HpMaxTough = 500,
+            Moves = { ["HIT"] = new MoveDef { Id = "HIT", Intent = "Buff", Hits = 1 } },
+            States = { ["HIT_MOVE"] = new StateDef { Id = "HIT_MOVE", Kind = StateKind.Move, MoveId = "HIT", Next = "HIT_MOVE" } },
+            InitialState = "HIT_MOVE",
+        };
+        // Every card left to draw is a Strike, and Hellraiser plays each one the moment it is drawn, so the hand never fills: this used to loop forever.
+        var c = new Combat(data.ParseDeck("STRIKE_IRONCLAD*6"), 80, 80, new[] { monster }, 0, 3, services: data.Services);
+        c.Hand.AddRange(data.ParseDeck("HELLRAISER+,PILLAGE").Select(x => x.Instantiate()));
+        c.Play(c.Hand.FindIndex(x => x.Id == "HELLRAISER"), -1);
+        c.Play(c.Hand.FindIndex(x => x.Id == "PILLAGE"), 0);
+        Assert.Equal(CombatResult.Ongoing, c.Result);
+    }
+
+    [Fact]
     public void ARunStartingActOneTakesANeowBoonAndAdviceForTheChoiceItselfDoesNot()
     {
         if (Data == null) return;

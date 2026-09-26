@@ -62,6 +62,9 @@ public sealed class ActRollout
     /// <summary>Whether a run from the very start of Act 1 takes a Neow boon first (advice for the Neow choice itself turns this off, since it evaluates the options).</summary>
     public bool DefaultNeow { get; set; } = true;
 
+    /// <summary>Debugging: print each fight as it starts (finds a rollout that hangs).</summary>
+    public static bool TraceFights { get; set; }
+
     /// <summary>
     /// Multiplies the player's HP pool (current, max, and every heal) inside the simulation, so every HP amount stays in
     /// proportion: enemy damage, self-inflicted HP loss from cards, and healing. Tuned so a simulated Ironclad survives
@@ -74,17 +77,17 @@ public sealed class ActRollout
     /// <summary>The fitted scale for an act. Act 2 needs more than Act 1: its enemies hit harder than the decks the reward policy builds can answer.</summary>
     public static double CalibratedScaleFor(int act) => act <= 1 ? CalibratedPlayerHpScale : CalibratedPlayerHpScaleAct2;
 
-    // Re-fit after the leaf-value planner, Neow boons, generated maps (calibrate-run --maps 150) and the pre-boss rest: 1.8 gives 62% Act 1
-    // survival, 1.9 gives 66% (real ~65%), 2.0 gives 71%. It was 2.5 with the older bot, so about a fifth of the old fudge was bot play.
-    // Per fight the sim now matches real weak-fight damage but is lighter in elites and normal fights and too lethal in bosses
-    // (deaths split 2% normal / 10% elite / 22% boss against roughly 25/35/40% real), so the scale still hides unmodelled resources.
-    public const double CalibratedPlayerHpScale = 1.9;
+    // Re-fit after the leaf-value planner (with draw and replan-energy values), Neow boons, generated maps (calibrate-run --maps 200) and the pre-boss rest:
+    // 1.7 gives 64% Act 1 survival, 1.72 about 65% (real ~65%), 1.9 gives 74%. It was 2.5 with the older bot, so about a third of the old fudge was bot play.
+    // Per fight the sim now matches real weak-fight damage but is lighter in elites and normal fights and still too lethal in bosses
+    // (deaths split 3% normal / 12% elite / 21% boss against roughly 25/35/40% real), so the scale still hides unmodelled resources.
+    public const double CalibratedPlayerHpScale = 1.72;
 
-    // Act 2, for the runs that beat Act 1 (sim calibrate-run --maps 150 --act2): at 4.0 Act 2 survival is 57%, at 5.0 67% (real ~61%).
-    // The Decimillipede (27% vs 12% real), Insatiable (38% vs 16%) and Knowledge Demon (35% vs 20%) stay too lethal at any scale (the bot
-    // can't line up the Decimillipede's segments, and the simulated decks are weaker than real Act 2 decks); Kaiser Crab and the Prisms
-    // are too easy. There is no Act 3 content yet.
-    public const double CalibratedPlayerHpScaleAct2 = 4.2;
+    // Act 2, for the runs that beat Act 1 (sim calibrate-run --maps 200 --act2): at 3.4 Act 2 survival is 57%, at 3.7 64%, at 4.0 68% (real ~61%).
+    // The Decimillipede (26% vs 12% real), Insatiable (27% vs 16%) and Knowledge Demon (27% vs 20%) stay too lethal at any scale (the bot
+    // can't line up the Decimillipede's segments, and the simulated decks are weaker than real Act 2 decks); Kaiser Crab (8% vs 24%) and the
+    // Prisms are too easy. There is no Act 3 content yet.
+    public const double CalibratedPlayerHpScaleAct2 = 3.5;
 
     /// <summary>
     /// The HP scale used in the next-act probe. Act 2 enemies hit harder than the Act 1 scale can absorb for a deck that has
@@ -396,6 +399,7 @@ public sealed class ActRollout
             string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
             if (lineup.Any(m => !_data.Monsters.Contains(m))) { unmodelled++; return true; }
 
+            if (TraceFights) Console.Error.WriteLine($"  fight {encounterId} lineup {string.Join("+", lineup)} hp {hp}/{maxHp} deck {string.Join(",", deck.Select(c => c.ToString()))} potions {string.Join(",", potions.Select(p => p.Id))} relics {string.Join(",", owned)}");
             int hpBefore = hp;
             int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
             FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes, relics: relics, hpScale: PlayerHpScale);

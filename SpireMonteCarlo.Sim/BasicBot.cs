@@ -79,7 +79,7 @@ public sealed class BasicBot
             BestScore = double.NegativeInfinity;
             foreach (var (path, state, _) in _visited.OrderByDescending(v => v.Cheap).Take((int)_bot.Tuning.Finalists))
             {
-                double deep = _bot.LeafValue(_root, state, _salt, deep: true) - path.Count(a => a.IsPotion) * PotionReserve;
+                double deep = _bot.LeafValue(_root, state, _salt, deep: true, plays: path.Count(a => !a.IsPotion)) - path.Count(a => a.IsPotion) * PotionReserve;
                 if (deep > BestScore) { BestScore = deep; Best = path; BestFinal = state; }
             }
         }
@@ -88,7 +88,7 @@ public sealed class BasicBot
         {
             if (_bot.Tuning.Leaf > 0)
             {
-                double cheap = _bot.LeafValue(_root, state, _salt, deep: false) - path.Count(a => a.IsPotion) * PotionReserve;
+                double cheap = _bot.LeafValue(_root, state, _salt, deep: false, plays: path.Count(a => !a.IsPotion)) - path.Count(a => a.IsPotion) * PotionReserve;
                 _visited.Add((new List<BotAction>(path), state, cheap));
             }
             else if (score > BestScore)
@@ -136,9 +136,13 @@ public sealed class BasicBot
     }
 
     /// <summary>Leaf mode: what stopping the turn in <paramref name="state"/> is worth. Plays out the enemy phase on a copy, then prices what is left: the HP lost now, plus each enemy's remaining HP at the rate its attacks cost us per point of damage we can deal.</summary>
-    private double LeafValue(Combat root, Combat state, ulong salt, bool deep)
+    private double LeafValue(Combat root, Combat state, ulong salt, bool deep, int plays)
     {
-        double powers = 0;
+        // Cards drawn this turn (by Shrug It Off, Battle Trance, Pommel Strike, ...) cycle the deck and give options later; the search can't play them now.
+        int drawn = Math.Max(0, state.Hand.Count - root.Hand.Count + plays);
+        double powers = Tuning.DrawValue * drawn * (state.Energy > 0 ? 1.0 : 0.6);
+        // A plan that ends on a draw is planned again with the new cards, so the energy it leaves is not wasted.
+        if (state.Hand.Any(c => c.Tag == 0)) powers += Tuning.ReplanEnergy * state.Energy;
         foreach (PowerKind kind in Enum.GetValues<PowerKind>())
         {
             int gained = state.PlayerPowers[(int)kind] - root.PlayerPowers[(int)kind];

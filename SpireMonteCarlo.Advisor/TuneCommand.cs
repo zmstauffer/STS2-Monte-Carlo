@@ -40,7 +40,7 @@ public static class TuneCommand
         var tuning = BotTuning.Default.Clone();
         if (Option(args, "--tune") is { } spec) tuning.Apply(spec);
         var sw = Stopwatch.StartNew();
-        Suite suite = new(data, n, Option(args, "--room"));
+        Suite suite = new(data, n, Option(args, "--room"), int.Parse(Option(args, "--hp") ?? "80"), Option(args, "--decks"));
         Report report = suite.Score(tuning);
         Console.WriteLine($"score {report.Score:F2}   normal {report.Normal:F1}  elite {report.Elite:F1}  boss {report.Boss:F1}   ({sw.Elapsed.TotalSeconds:F1}s)");
         foreach (var (name, loss) in report.PerDeck) Console.WriteLine($"  {name}: {loss:F1}");
@@ -53,7 +53,7 @@ public static class TuneCommand
         int rounds = int.Parse(Option(args, "--rounds") ?? "3");
         var best = BotTuning.Default.Clone();
         if (Option(args, "--tune") is { } spec) best.Apply(spec);
-        Suite suite = new(data, n, Option(args, "--room"));
+        Suite suite = new(data, n, Option(args, "--room"), int.Parse(Option(args, "--hp") ?? "80"), Option(args, "--decks"));
         Report bestReport = suite.Score(best);
         Console.WriteLine($"start: {bestReport.Score:F2} (normal {bestReport.Normal:F1} elite {bestReport.Elite:F1} boss {bestReport.Boss:F1})");
         double[] factors = { 0.6, 1.5 };
@@ -91,17 +91,20 @@ public static class TuneCommand
         private readonly SimData _data;
         private readonly int _n;
         private readonly string? _onlyRoom;
+        private readonly int _hp;
         private readonly List<(string Encounter, string Room, int Deck)> _fights = new();
         private readonly List<List<CardDef>> _decks = new();
 
-        public Suite(SimData data, int n, string? onlyRoom = null)
+        public Suite(SimData data, int n, string? onlyRoom = null, int hp = 80, string? deckNames = null)
         {
+            _hp = hp;
             _data = data;
             _n = n;
             _onlyRoom = onlyRoom;
             foreach (var (_, deck) in Decks) _decks.Add(data.ParseDeck(deck));
             for (int d = 0; d < Decks.Length; d++)
             {
+                if (deckNames != null && !deckNames.Split(',').Contains(Decks[d].Name)) continue;
                 if (onlyRoom is null or "normal") foreach (string e in Normals) if (data.Encounters.Contains(e)) _fights.Add((e, "normal", d));
                 if (onlyRoom is null or "elite") foreach (string e in Elites) _fights.Add((e, "elite", d));
                 if (onlyRoom is null or "boss") foreach (string e in Bosses) _fights.Add((e, "boss", d));
@@ -122,14 +125,14 @@ public static class TuneCommand
                 {
                     ulong seed = SimRng.Mix(17, (ulong)i);
                     string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(seed, 1)));
-                    FightResult r = FightSimulator.Run(_decks[deckIndex], 80, 80, lineup.Select(_data.Monsters.Get), 10, seed, bot: bot, altStarts: encounter.AltStarts, services: _data.Services, stakes: stakes);
+                    FightResult r = FightSimulator.Run(_decks[deckIndex], _hp, _hp, lineup.Select(_data.Monsters.Get), 10, seed, bot: bot, altStarts: encounter.AltStarts, services: _data.Services, stakes: stakes);
                     total += r.HpLost + (r.Won ? 0 : 40);
                 }
                 losses[f] = total / _n;
             });
             double Mean(string room) => Enumerable.Range(0, _fights.Count).Where(i => _fights[i].Room == room).DefaultIfEmpty(-1).Average(i => i < 0 ? 0 : losses[i]);
             double normal = Mean("normal"), elite = Mean("elite"), boss = Mean("boss");
-            var perDeck = Decks.Select((d, i) => (d.Name, Enumerable.Range(0, _fights.Count).Where(k => _fights[k].Deck == i).Average(k => losses[k]))).ToList();
+            var perDeck = Decks.Select((d, i) => (d.Name, Enumerable.Range(0, _fights.Count).Where(k => _fights[k].Deck == i).DefaultIfEmpty(-1).Average(k => k < 0 ? 0 : losses[k]))).ToList();
             return new Report(_onlyRoom == "normal" ? normal : _onlyRoom == "elite" ? elite : _onlyRoom == "boss" ? boss : 3 * normal + 2 * elite + boss, normal, elite, boss, perDeck);
         }
     }

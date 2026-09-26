@@ -377,9 +377,11 @@ public sealed partial class Combat
                 }
             case EffectOp.DrawUntilNonAttack:
                 {
+                    // Capped: with Hellraiser every drawn Strike is played at once and leaves the hand, so the hand never fills up.
                     CardDef? drawn;
+                    int drawnCards = 0;
                     do drawn = DrawOne();
-                    while (drawn != null && drawn.Kind == CardKind.Attack && Hand.Count < MaxHandSize && Result == CombatResult.Ongoing);
+                    while (drawn != null && drawn.Kind == CardKind.Attack && Hand.Count < MaxHandSize && Result == CombatResult.Ongoing && ++drawnCards < 2 * MaxHandSize);
                     break;
                 }
             case EffectOp.AbsorbRandomAttack:

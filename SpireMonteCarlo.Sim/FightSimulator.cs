@@ -106,6 +106,84 @@ public static class FightSimulator
         return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList());
     }
 
+    /// <summary>Research tool: plays a fight with the normal bot and, each turn, compares its plan with the best ordering of the hand (judged by rollouts of the normal bot), reporting the turns where the bot's plan is clearly worse.</summary>
+    public static void Audit(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed, int rollouts, CombatServices? services, Action<string> report)
+    {
+        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, services: services);
+        var bot = new BasicBot();
+        ulong salt = 1;
+        double Judge(Combat root, List<BotAction> seq)
+        {
+            double total = 0;
+            for (int r = 0; r < rollouts; r++)
+            {
+                Combat c = root.Clone(salt++);
+                c.Rng.Shuffle(c.DrawPile);
+                foreach (BotAction a in seq) if (!BasicBot.Apply(c, a)) break;
+                if (c.Result == CombatResult.Ongoing) PlayTurn(c, bot, null);
+                while (c.Result == CombatResult.Ongoing)
+                {
+                    c.EndPlayerTurn();
+                    if (c.Result != CombatResult.Ongoing || c.Turn > 40) break;
+                    PlayTurn(c, bot, null);
+                }
+                total += c.Result == CombatResult.Won ? c.HpLost : 1000;
+            }
+            return total / rollouts;
+        }
+        while (combat.Result == CombatResult.Ongoing)
+        {
+            foreach (CardDef c in combat.Hand) c.Tag = 0;
+            for (int i = 0; i < combat.Hand.Count; i++) combat.Hand[i].Tag = i + 1;
+            List<BotAction> mine = bot.Plan(combat);
+            foreach (CardDef c in combat.Hand) c.Tag = 0;
+            for (int i = 0; i < combat.Hand.Count; i++) combat.Hand[i].Tag = i + 1;
+
+            var sequences = new List<List<BotAction>>();
+            void Enumerate(Combat state, List<BotAction> prefix)
+            {
+                if (sequences.Count >= 400) return;
+                sequences.Add(new List<BotAction>(prefix));
+                if (prefix.Count >= 5) return;
+                var seen = new HashSet<(string, bool, int)>();
+                foreach (CardDef card in state.Hand.Where(c => c.Tag > 0).ToList())
+                {
+                    if (!state.CanPlay(card) || !seen.Add((card.Id, card.Upgraded, card.BonusDamage))) continue;
+                    IEnumerable<int> targets = Combat.NeedsTarget(card) ? state.Enemies.Where(e => e.Alive && !e.Dying).Select(e => e.Index) : new[] { -1 };
+                    foreach (int t in targets)
+                    {
+                        Combat next = state.Clone(salt++);
+                        var action = new BotAction(card.Tag, null, t);
+                        if (!BasicBot.Apply(next, action) || next.Result != CombatResult.Ongoing) continue;
+                        prefix.Add(action);
+                        Enumerate(next, prefix);
+                        prefix.RemoveAt(prefix.Count - 1);
+                    }
+                }
+            }
+            Enumerate(combat, new List<BotAction>());
+            double mineScore = Judge(combat, mine);
+            List<BotAction> best = mine;
+            double bestScore = mineScore;
+            foreach (var seq in sequences)
+            {
+                double v = Judge(combat, seq);
+                if (v < bestScore) { bestScore = v; best = seq; }
+            }
+            string Show(List<BotAction> seq) => string.Join(", ", seq.Select(a => Describe(combat, a).Trim()));
+            if (mineScore - bestScore >= 4)
+            {
+                TraceTurnStart(combat, report);
+                report($"    bot  ({mineScore:0.0}): {Show(mine)}");
+                report($"    best ({bestScore:0.0}): {Show(best)}");
+            }
+            foreach (BotAction a in mine) if (combat.Result == CombatResult.Ongoing && !BasicBot.Apply(combat, a)) break;
+            if (combat.Result == CombatResult.Ongoing) PlayTurn(combat, bot, null);
+            if (combat.Result != CombatResult.Ongoing) break;
+            combat.EndPlayerTurn();
+        }
+    }
+
     /// <summary>Plans the turn and carries the plan out, planning again whenever a draw or generated card changes the hand.</summary>
     private static void PlayTurn(Combat combat, BasicBot bot, Action<string>? trace)
     {

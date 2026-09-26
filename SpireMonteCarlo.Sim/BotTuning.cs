@@ -37,6 +37,10 @@ public sealed class BotTuning
     public double Progress = 0.2;
     /// <summary>Leaf mode: how many of the best plans (by the cheap one-turn judgement) are judged again looking several turns ahead.</summary>
     public double Finalists = 4;
+    /// <summary>Leaf mode: value of each card drawn during the plan (it cycles the deck and gives choices in later turns).</summary>
+    public double DrawValue = 6;
+    /// <summary>Leaf mode: value of each energy left when a plan stops at a draw (the turn is planned again with the new cards and will spend it).</summary>
+    public double ReplanEnergy = 8;
     /// <summary>Leaf mode: weight on the value of powers gained this turn.</summary>
     public double PowerGain = 1.0;
 
