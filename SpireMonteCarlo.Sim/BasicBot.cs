@@ -17,8 +17,8 @@ public readonly record struct BotAction(int Tag, string? PotionId, int Target)
 public static class LeafFeatures
 {
     public const int Lost = 0, Future = 1, Progress = 2, Drawn = 3, ReplanEnergy = 4, PowerGain = 5, WastedEnergy = 6, EnemyWeak = 7, EnemyVulnerable = 8,
-        EnemiesAlive = 9, ExhaustedJunk = 10, ExhaustedCards = 11, PlayerDebuffs = 12, SelfDamage = 13, Count = 14;
-    public static readonly string[] Names = { "Lost", "Future", "Progress", "Drawn", "ReplanEnergy", "PowerGain", "WastedEnergy", "EnemyWeak", "EnemyVulnerable", "EnemiesAlive", "ExhaustedJunk", "ExhaustedCards", "PlayerDebuffs", "SelfDamage" };
+        EnemiesAlive = 9, ExhaustedJunk = 10, ExhaustedCards = 11, PlayerDebuffs = 12, SelfDamage = 13, ExhaustLoss = 14, Count = 15;
+    public static readonly string[] Names = { "Lost", "Future", "Progress", "Drawn", "ReplanEnergy", "PowerGain", "WastedEnergy", "EnemyWeak", "EnemyVulnerable", "EnemiesAlive", "ExhaustedJunk", "ExhaustedCards", "PlayerDebuffs", "SelfDamage", "ExhaustLoss" };
 }
 
 public sealed class BasicBot
@@ -159,11 +159,22 @@ public sealed class BasicBot
     {
         f.Clear();
         terminal = true;
+        // A plan that stops at a draw is planned again once the cards are seen. The planning copy has already drawn a sample of them,
+        // so finish the turn on a copy (greedily, with the energy left) and judge the whole turn, instead of pricing the leftover energy
+        // at a flat rate, which overrated drawing when the hand already had more cards than energy (Burning Pact, Drum of Battle).
+        if (Tuning.FinishDraws > 0 && state.Result == CombatResult.Ongoing && state.Energy > 0 && state.Hand.Any(c => c.Tag == 0))
+        {
+            Combat finished = state.Clone(salt + 7);
+            plays += GreedyFinish(finished);
+            state = finished;
+        }
         // Cards drawn this turn (by Shrug It Off, Battle Trance, Pommel Strike, ...) cycle the deck and give options later; the search can't play them now.
         int drawn = Math.Max(0, state.Hand.Count - root.Hand.Count + plays);
         f[LeafFeatures.Drawn] = drawn * (state.Energy > 0 ? 1.0 : 0.6);
         // A plan that ends on a draw is planned again with the new cards, so the energy it leaves is not wasted.
-        if (state.Hand.Any(c => c.Tag == 0)) f[LeafFeatures.ReplanEnergy] = state.Energy;
+        // What that energy will buy depends on the deck: a Strike-and-Defend deck gets about half as much per energy as the bench decks
+        // the weight was fit on, and valuing it at the bench rate made Burning Pact and Drum of Battle look better than playing a card.
+        if (state.Hand.Any(c => c.Tag == 0)) f[LeafFeatures.ReplanEnergy] = state.Energy * EnergyScale(root);
         else f[LeafFeatures.WastedEnergy] = state.Energy;
         foreach (PowerKind kind in Enum.GetValues<PowerKind>())
         {
@@ -185,6 +196,7 @@ public sealed class BasicBot
         if (c.Result == CombatResult.Won) return powers + 50 - Tuning.LostWeight * lost;
         terminal = false;
         f[LeafFeatures.Lost] = lost;
+        double dpt = DamagePerTurn(c);
         // How hard the enemies will hit over the next few turns if we did nothing: this sees Ritual-style growth and charge-up turns.
         int horizon = deep ? (int)Math.Max(1, Tuning.Horizon) : 1;
         var perEnemy = new Dictionary<int, double>();
@@ -211,7 +223,7 @@ public sealed class BasicBot
         {
             if (!e.Alive || e.Dying) continue;
             int vulnerable = e.Powers[(int)PowerKind.Vulnerable];
-            double effective = vulnerable > 0 ? e.Hp - Math.Min(e.Hp / 3.0, Tuning.Dpt * Math.Min(vulnerable, 2) / 3.0) : e.Hp;   // Vulnerable is worth a third of the damage we deal while it lasts
+            double effective = vulnerable > 0 ? e.Hp - Math.Min(e.Hp / 3.0, dpt * Math.Min(vulnerable, 2) / 3.0) : e.Hp;   // Vulnerable is worth a third of the damage we deal while it lasts
             progress += effective;
             double threat = perEnemy.GetValueOrDefault(e.Index) / horizon * scale + (e.Primary ? 0 : 0.5);
             // A sleeping or charging enemy still has attacks coming later, so it never counts as harmless.
@@ -230,10 +242,11 @@ public sealed class BasicBot
         foreach (var (threat, hp) in threats)
         {
             cumulative += hp;
-            future += threat * cumulative / Tuning.Dpt;
+            future += threat * cumulative / dpt;
         }
         f[LeafFeatures.Future] = future;
         f[LeafFeatures.Progress] = progress;
+        f[LeafFeatures.ExhaustLoss] = ExhaustLoss(root, state, c, progress, dpt);
         foreach (PowerKind debuff in new[] { PowerKind.Weak, PowerKind.Frail, PowerKind.Vulnerable })
             f[LeafFeatures.PlayerDebuffs] += Math.Min(3, c.PlayerPowers[(int)debuff]);
         // The Insatiable's Sandpit ends the run when its countdown reaches 0; every point of margin is worth a lot when it is short.
@@ -241,7 +254,111 @@ public sealed class BasicBot
         double sandpit = sand <= 0 ? 0 : 300 * Math.Pow(0.35, sand - 1);
         return powers - Tuning.LostWeight * lost - Tuning.FutureWeight * future - Tuning.Progress * progress - sandpit
             + Tuning.WastedEnergy * f[LeafFeatures.WastedEnergy] + Tuning.EnemyWeak * f[LeafFeatures.EnemyWeak] + Tuning.EnemyVulnerable * f[LeafFeatures.EnemyVulnerable]
-            + Tuning.EnemiesAlive * f[LeafFeatures.EnemiesAlive] + Tuning.PlayerDebuffs * f[LeafFeatures.PlayerDebuffs];
+            + Tuning.EnemiesAlive * f[LeafFeatures.EnemiesAlive] + Tuning.PlayerDebuffs * f[LeafFeatures.PlayerDebuffs]
+            - Tuning.ExhaustLoss * f[LeafFeatures.ExhaustLoss];
+    }
+
+    /// <summary>
+    /// What the cards exhausted this turn would still have done in this fight, in HP: each would have been drawn about (turns left x 5 /
+    /// cards in the deck, at most once a turn) more times, and while the deck is bigger than a hand each of those draws becomes a draw of an
+    /// average card instead, so the loss per card is (its worth - the average card's worth) x those draws. Exhausting a Bash costs, a Strike in a deck of Strikes costs about nothing, and a status
+    /// or curse (worth nothing) gains. Turns left come from the enemies' remaining HP over the deck's damage per turn.
+    /// </summary>
+    private static double ExhaustLoss(Combat root, Combat state, Combat after, double enemyHpLeft, double dpt)
+    {
+        int exhausted = state.ExhaustPile.Count - root.ExhaustPile.Count;
+        if (exhausted <= 0) return 0;
+        var deck = after.DrawPile.Concat(after.DiscardPile).Concat(after.Hand).ToList();
+        if (deck.Count == 0) return 0;
+        double mean = deck.Average(PlayWorth);
+        // A card can be drawn at most once a turn, and an exhausted card is only replaced by other draws while the deck is bigger than a
+        // hand: at 10+ cards an average card takes its place, at 5 or fewer nothing does (without this the bot thinned its deck down
+        // to Burning Pact alone and lost).
+        double draws = Math.Clamp(enemyHpLeft / dpt, 0, 10) * Math.Min(1.0, 5.0 / deck.Count);
+        double replaced = Math.Clamp((deck.Count - 5) / 5.0, 0, 1);
+        double loss = 0;
+        for (int i = root.ExhaustPile.Count; i < state.ExhaustPile.Count; i++) loss += (PlayWorth(state.ExhaustPile[i]) - replaced * mean) * draws;
+        return loss;
+    }
+
+    /// <summary>The bench decks' average damage per energy (<see cref="DamageRate"/>: starter 3.5, mid 3.5, built 3.9, blood 5.1), the rate <see cref="BotTuning.Dpt"/> was fit at.</summary>
+    public const double BenchDamageRate = 4.0;
+
+    /// <summary>
+    /// The damage per turn this deck deals, for how long enemies live: <see cref="BotTuning.Dpt"/> (fit on the bench decks) scaled by this
+    /// deck's damage per energy, Strength included, against the bench decks'. A fixed rate made a Strike-and-Defend deck think its
+    /// attacks shortened fights less than they do, so it blocked where it should have attacked (Expect a Fight, Drum of Battle).
+    /// </summary>
+    private double DamagePerTurn(Combat c) =>
+        Tuning.Dpt * Math.Clamp(DamageRate(c.DrawPile.Concat(c.DiscardPile).Concat(c.Hand), c.PlayerPowers[(int)PowerKind.Strength]) / BenchDamageRate, 0.4, 2.0);
+
+    /// <summary>Damage per energy of the playable cards (0-cost cards count as half an energy, X cards as one), with this much Strength.</summary>
+    public static double DamageRate(IEnumerable<CardDef> cards, int strength)
+    {
+        double damage = 0, energy = 0;
+        foreach (CardDef c in cards)
+        {
+            if (c.Kind is CardKind.Status or CardKind.Curse || c.Cost == CardDef.Unplayable) continue;
+            foreach (Effect e in c.Effects)
+                if (e.Op is EffectOp.Damage or EffectOp.DamageAll or EffectOp.DamageRandom)
+                    damage += Math.Max(0, e.Amount + c.BonusDamage + strength) * Math.Max(1, e.Hits);
+            energy += c.Cost < 0 ? 1 : Math.Max(0.5, c.Cost);
+        }
+        return energy == 0 ? 0 : damage / energy;
+    }
+
+    /// <summary>The bench decks' average worth per energy (<see cref="EnergyWorth"/>: starter 5.7, mid 10.3, built 12.1, blood 10.1), the rate <see cref="BotTuning.ReplanEnergy"/> was fit at.</summary>
+    public const double BenchEnergyWorth = 9.5;
+
+    /// <summary>This deck's worth per energy against the bench decks', bounded to 0.3-1.5.</summary>
+    private static double EnergyScale(Combat root) => Math.Clamp(EnergyWorth(root.DrawPile.Concat(root.DiscardPile).Concat(root.Hand)) / BenchEnergyWorth, 0.3, 1.5);
+
+    /// <summary>Average worth per energy (rough HP, before the cost penalty in <c>KeepValue</c>) of the playable cards that cost energy.</summary>
+    public static double EnergyWorth(IEnumerable<CardDef> cards)
+    {
+        double total = 0;
+        int n = 0;
+        foreach (CardDef c in cards)
+        {
+            if (c.Kind is CardKind.Status or CardKind.Curse || c.Cost == CardDef.Unplayable || c.Cost < 1) continue;
+            total += (CardChoices.KeepValue(c) + 0.4 * c.Cost) / 0.3 / c.Cost;
+            n++;
+        }
+        return n == 0 ? BenchEnergyWorth : total / n;
+    }
+
+    /// <summary>A card's worth per draw in rough HP (a point of damage or block is about one): 0 for statuses, curses and unplayable cards.</summary>
+    private static double PlayWorth(CardDef card) =>
+        card.Kind is CardKind.Status or CardKind.Curse || card.Cost == CardDef.Unplayable ? 0 : Math.Max(0, CardChoices.KeepValue(card) / 0.3);
+
+    /// <summary>Plays the rest of a turn greedily by the per-play scores (no search), by hand position so unseen cards need no tags. Returns the plays made.</summary>
+    private int GreedyFinish(Combat combat)
+    {
+        int played = 0;
+        for (int step = 0; step < 10 && combat.Result == CombatResult.Ongoing; step++)
+        {
+            int incoming = combat.IncomingDamage();
+            int needBlock = Math.Max(0, incoming - combat.Block);
+            bool lethalNow = incoming - combat.Block >= combat.Hp;
+            double best = MinScoreToPlay;
+            int bestIndex = -1, bestTarget = -1;
+            for (int i = 0; i < combat.Hand.Count; i++)
+            {
+                CardDef card = combat.Hand[i];
+                if (!combat.CanPlay(card)) continue;
+                int cost = combat.EffectiveCost(card);
+                int energyAfter = cost == CardDef.XCost ? 0 : combat.Energy - cost;
+                foreach (int t in CandidateTargets(combat, Combat.NeedsTarget(card)))
+                {
+                    double score = ScoreEffects(combat, card.Effects, card, i, t, needBlock, lethalNow, energyAfter, combat.Hand.Count - 1);
+                    if (score > best) { best = score; bestIndex = i; bestTarget = t; }
+                }
+            }
+            if (bestIndex < 0) break;
+            combat.Play(bestIndex, bestTarget);
+            played++;
+        }
+        return played;
     }
 
     /// <summary>Research: the plans the leaf search considered for this turn (path and end state), without potions.</summary>

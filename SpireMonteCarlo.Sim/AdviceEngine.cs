@@ -90,16 +90,17 @@ public static class AdviceEngine
     /// <summary>The smallest gap (in points) reported as a real difference between two options.</summary>
     public const double MeaningfulPoints = 0.5;
 
-    // How the end-of-Act-1 deck predicts surviving Act 2, fit by logistic regression on chained runs (sim calibrate-run --maps 200 --act2,
-    // 4000 Act 1 survivors): logit P = -6.27 + 5.50 x deck strength + 4.63 x share of HP carried in (after the Ancient's heal). Survival
-    // by deck-strength fifth was 39/52/65/75/83%.
-    private const double NextActIntercept = -6.27, StrengthSlope = 5.50, HpSlope = 4.63;
+    // How the end-of-Act-1 deck predicts surviving Act 2, fit by logistic regression on chained runs (sim calibrate-run --maps 400 --act2
+    // at the calibrated HP scales, ~3900 Act 1 survivors): logit P = -6.99 + 5.93 x deck strength + 4.99 x share of HP carried in (after
+    // the Ancient's heal). Survival by deck-strength fifth was 31/53/60/72/84%. The strength slope is stable between fits (5.5-5.9); the
+    // HP slope is not (2.6-5.5), since HP carried in varies little.
+    private const double NextActIntercept = -6.99, StrengthSlope = 5.93, HpSlope = 4.99;
 
     // Act 3 isn't modelled well enough to simulate, so the chance of winning it uses the same sensitivity to deck strength, centred on
     // the real rate: A10 Ironclads win 33.4% of runs and survive Acts 1 and 2 about 65% and 61% of the time, so ~84% of those who reach
-    // Act 3 win it. Centred on the average end-of-Act-1 deck (0.49) for Act 1 decisions and on the average end-of-Act-2 deck (0.69,
+    // Act 3 win it. Centred on the average end-of-Act-1 deck (0.50) for Act 1 decisions and on the average end-of-Act-2 deck (0.70,
     // tested against the same Act 2 fights) for Act 2 decisions.
-    private const double Act3WinRate = 0.84, Act1DeckStrength = 0.49, Act2DeckStrength = 0.69, Act2HpShare = 0.9;
+    private const double Act3WinRate = 0.84, Act1DeckStrength = 0.50, Act2DeckStrength = 0.70, Act2HpShare = 0.9;
 
     // A card's worth later in the run, from real players' ratings: across 82 Ironclad cards in the A10 bracket each +100 Codex Elo goes
     // with +3.1 points of run win rate (r = 0.61). Part of that is stronger players picking better cards, so half of it is counted, against

@@ -293,6 +293,7 @@ public static class FitLeafCommand
     {
         LeafFeatures.Lost => -t.LostWeight,
         LeafFeatures.Future => -t.FutureWeight,
+        LeafFeatures.ExhaustLoss => -t.ExhaustLoss,
         LeafFeatures.Progress => -t.Progress,
         LeafFeatures.Drawn => t.DrawValue,
         LeafFeatures.ReplanEnergy => t.ReplanEnergy,
@@ -309,6 +310,7 @@ public static class FitLeafCommand
             {
                 LeafFeatures.Lost => ("LostWeight", -beta[j]),
                 LeafFeatures.Future => ("FutureWeight", -beta[j]),
+                LeafFeatures.ExhaustLoss => ("ExhaustLoss", -beta[j]),
                 LeafFeatures.Progress => ("Progress", -beta[j]),
                 LeafFeatures.Drawn => ("DrawValue", beta[j]),
                 LeafFeatures.ReplanEnergy => ("ReplanEnergy", beta[j]),

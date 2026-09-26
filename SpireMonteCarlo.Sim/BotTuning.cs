@@ -56,13 +56,21 @@ public sealed class BotTuning
     /// <summary>Leaf mode: value of each enemy still alive after its turn.</summary>
     public double EnemiesAlive = -3.14;
     /// <summary>Leaf mode: value of each status or curse exhausted this turn.</summary>
-    public double ExhaustedJunk = 1.0;
+    public double ExhaustedJunk = 0;
     /// <summary>Leaf mode: value of each other card exhausted this turn.</summary>
-    public double ExhaustedCards = 3.78;
+    public double ExhaustedCards = 0;
     /// <summary>Leaf mode: value of each Weak/Frail/Vulnerable stack (up to 3 each) on the player after the enemies' turn.</summary>
     public double PlayerDebuffs = -2.16;
     /// <summary>Leaf mode: value of each HP the plan itself costs (Bloodletting, Offering, ...).</summary>
     public double SelfDamage = -1.5;
+    /// <summary>
+    /// Leaf mode: weight on what the cards exhausted this turn would still have done in the fight (see <c>BasicBot.ExhaustLoss</c>). It
+    /// replaced the flat per-card exhaust weights, whose fit (+3.78 for every ordinary card exhausted) had no exhaust cards in the bench
+    /// decks behind it and made True Grit, Burning Pact and Havoc throw away Strikes, Defends and Bash from thin decks.
+    /// </summary>
+    public double ExhaustLoss = 1.0;
+    /// <summary>Leaf mode: 1 to finish a turn that stops at a draw greedily on the planning copy (which has drawn a sample) before judging it.</summary>
+    public double FinishDraws = 1;
 
     public static BotTuning Default { get; } = FromEnvironment();
 

@@ -70,8 +70,9 @@ public static class CardValueCommand
         if (withElo.Count < 3) withElo = new();
         var simRank = Ranks(withElo.Select(Overall).ToList());
         var eloRank = Ranks(withElo.Select(r => r.Elo).ToList());
-        double spearman = Pearson(simRank, eloRank);
+        double spearman = withElo.Count >= 3 ? Pearson(simRank, eloRank) : double.NaN;
 
+        Console.WriteLine($"Base deck worth per energy {BasicBot.EnergyWorth(baseDeck):F1} (bench reference {BasicBot.BenchEnergyWorth}), damage per energy {BasicBot.DamageRate(baseDeck, 0):F1} (bench reference {BasicBot.BenchDamageRate}).");
         Console.WriteLine($"Base deck \"{baseName}\" ({baseDeck.Count} cards), {encounters.Count} Act 1 fights x {n} seeds at {hp} HP, {sw.Elapsed.TotalSeconds:F0}s.");
         Console.WriteLine($"Base deck loses {Enumerable.Range(0, encounters.Count).Average(e => loss[0, e]):F1} HP per fight. Rank correlation of HP saved with Codex Elo: {spearman:F2}");
         var dead = rows.First(r => r.Id == "INJURY");
