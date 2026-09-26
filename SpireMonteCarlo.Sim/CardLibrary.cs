@@ -66,6 +66,9 @@ public sealed class CardLibrary
 
     public bool Contains(string id) => _codex.ContainsKey(id) || _game.ContainsKey(id);
 
+    /// <summary>The card's rarity name from the game's class ("Common", "Ancient", "Curse", ...), or "" when unknown.</summary>
+    public string RarityOf(string id) => _game.TryGetValue(id, out ExtractedCard? ex) ? ex.Rarity : _codex.TryGetValue(id, out CodexCard? c) ? c.Rarity : "";
+
     /// <summary>True when the card is built from a hand-checked recipe and the game's own numbers, so nothing about it is approximate.</summary>
     public bool HasRecipe(string id) => _game.TryGetValue(id, out ExtractedCard? ex) && CardRecipes.Get(id, false, VarsOf(ex, false)) != null;
 

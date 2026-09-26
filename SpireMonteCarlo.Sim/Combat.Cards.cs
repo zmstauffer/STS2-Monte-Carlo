@@ -24,6 +24,8 @@ public sealed partial class Combat
         public int X;
         public int HandExhausted;
         public bool LastKilled;
+        /// <summary>Unsettling Lamp is waiting for the first debuff card of the combat; this card's debuffs count double.</summary>
+        public bool DoubleDebuffs, LampFired;
         public Enemy? LastTarget;
     }
 
@@ -88,9 +90,10 @@ public sealed partial class Combat
         PotionDef potion = Potions[potionIndex];
         if (!CanUsePotion(potion)) throw new InvalidOperationException($"Cannot use {potion.Id} now.");
         Potions.RemoveAt(potionIndex);
+        RelicOnPotionUsed();
         int target = potion.NeedsTarget ? ResolveTarget(targetIndex) : -1;
         _cardsInPlay++;
-        try { RunEffects(potion.AsCard, target, 0); }
+        try { RunEffects(potion.AsCard, target, 0, fromPotion: true); }
         finally { _cardsInPlay--; }
         if (_cardsInPlay == 0 && _pendingRupture > 0)
         {
@@ -120,6 +123,7 @@ public sealed partial class Combat
         Hand.RemoveAt(handIndex);
 
         int cost = EffectiveCost(card);
+        _rr.HandPlaysThisTurn++;
         int x = 0;
         if (cost == CardDef.XCost) { x = Energy; Energy = 0; }
         else Energy -= cost;
@@ -158,6 +162,7 @@ public sealed partial class Combat
 
     private void Resolve(CardDef card, int target, int x, bool forceExhaust, int costPaid = 0)
     {
+        if (card.Cost == CardDef.XCost && Has(RelicKind.ChemicalX)) x += 2;
         _cardsInPlay++;
         try
         {
@@ -178,6 +183,7 @@ public sealed partial class Combat
                 plays = 2;
                 PlayerPowers[(int)PowerKind.OneTwoPunch]--;
             }
+            plays += RelicExtraPlays(card) + card.Replay;
             for (int p = 0; p < plays && Result != CombatResult.Lost; p++) RunEffects(card, target, x);
 
             CardsPlayed++;
@@ -186,6 +192,7 @@ public sealed partial class Combat
                 if (e.Powers[(int)PowerKind.Slow] > 0) e.SlowCards++;
             if (card.Kind == CardKind.Attack && PlayerPowers[(int)PowerKind.Rage] > 0) GainBlockRaw(PlayerPowers[(int)PowerKind.Rage]);
             RelicAfterCard(card, costPaid);
+            RelicAfterCardExtra(card);
             AfterCardTender();
             AfterCardTainted(card);
             AfterCardEnemyPowers(card);
@@ -202,6 +209,7 @@ public sealed partial class Combat
             _pendingRupture = 0;
         }
 
+        card = RelicUpgradePlayedCard(card);
         if (card.Kind == CardKind.Power) { /* stays in play for the rest of the combat */ }
         else if (forceExhaust || card.Exhaust || (card.Kind == CardKind.Skill && PlayerPowers[(int)PowerKind.Corruption] > 0)) ExhaustCard(card);
         else DiscardPile.Add(card);
@@ -209,15 +217,16 @@ public sealed partial class Combat
         CheckEnd();
     }
 
-    private void RunEffects(CardDef card, int target, int x)
+    private void RunEffects(CardDef card, int target, int x, bool fromPotion = false)
     {
-        var ctx = new PlayContext { Card = card, Target = target, X = x };
+        var ctx = new PlayContext { Card = card, Target = target, X = x, DoubleDebuffs = !fromPotion && Has(RelicKind.UnsettlingLamp) && !_rr.LampUsed };
         foreach (Effect effect in card.Effects)
         {
             if (Result == CombatResult.Lost) break;
             Apply(effect, ctx);
         }
         if (card.DamageGrowthPerPlay > 0) card.BonusDamage += card.DamageGrowthPerPlay;
+        if (ctx.LampFired) _rr.LampUsed = true;
     }
 
     private Enemy? TargetOf(PlayContext ctx) =>
@@ -278,9 +287,11 @@ public sealed partial class Combat
                 break;
 
             case EffectOp.DebuffEnemy:
+                if (ctx.DoubleDebuffs && PowerRules.IsDebuff(effect.Power)) { amount *= 2; ctx.LampFired = true; }
                 if (target != null) ApplyDebuff(target, effect.Power, amount);
                 break;
             case EffectOp.DebuffAll:
+                if (ctx.DoubleDebuffs && PowerRules.IsDebuff(effect.Power)) { amount *= 2; ctx.LampFired = true; }
                 foreach (Enemy e in Enemies.ToList())
                     if (Targetable(e)) ApplyDebuff(e, effect.Power, amount);
                 break;
@@ -489,6 +500,7 @@ public sealed partial class Combat
         DrawPile.AddRange(DiscardPile);
         DiscardPile.Clear();
         Rng.Shuffle(DrawPile);
+        RelicOnShuffle();
         return true;
     }
 
@@ -496,11 +508,13 @@ public sealed partial class Combat
     private CardDef? DrawOne(bool fromHandDraw = false)
     {
         if (!fromHandDraw && PlayerPowers[(int)PowerKind.NoDraw] > 0) return null;
+        if (!fromHandDraw && _playerTurn && Has(RelicKind.Fiddle)) return null;   // no drawing during the turn
         if (Hand.Count >= MaxHandSize) return null;
         if (DrawPile.Count == 0 && !ReshuffleDiscard()) return null;
         CardDef card = DrawPile[^1];
         DrawPile.RemoveAt(DrawPile.Count - 1);
         Hand.Add(card);
+        if (PlayerPowers[(int)PowerKind.Confused] > 0 && card.Cost >= 0) card.RandomCost = Rng.Next(4);
         if (PlayerPowers[(int)PowerKind.Hellraiser] > 0 && card.IsStrike) AutoPlay(card, forceExhaust: false);
         return card;
     }
@@ -526,7 +540,7 @@ public sealed partial class Combat
             else DrawCards(PlayerPowers[(int)PowerKind.DarkEmbrace]);
         }
         if (card.EnergyWhenExhausted > 0) Energy += card.EnergyWhenExhausted;
-        RelicOnExhaust();
+        RelicOnExhaust(card);
     }
 }
 

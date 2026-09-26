@@ -159,6 +159,17 @@ public sealed class CardDef
     public int CostReductionThisTurn { get; set; }
     public int CostIncreaseThisCombat { get; set; }
     public bool FreeThisTurn { get; set; }
+    /// <summary>Ethereal or Retain gained during this combat (Music Box's copy, Ghost Seed).</summary>
+    public bool ExtraEthereal { get; set; }
+    public bool ExtraRetain { get; set; }
+    /// <summary>Costs 0 for the rest of the combat (Touch of Insanity, Jeweled Mask).</summary>
+    public bool FreeThisCombat { get; set; }
+    /// <summary>Cost set at random when drawn under Confused (-1 when not set).</summary>
+    public int RandomCost { get; set; } = -1;
+    /// <summary>Plays an extra time each time it is played (Soldier's Stew).</summary>
+    public int Replay { get; set; }
+    public bool IsEthereal => Ethereal || ExtraEthereal;
+    public bool IsRetained => Retain || ExtraRetain;
     public bool UpgradedInCombat { get; set; }
     public CardDef? UpgradedForm { get; set; }
 
@@ -180,6 +191,7 @@ public sealed class CardDef
         c.CostReductionThisTurn = CostReductionThisTurn;
         c.CostIncreaseThisCombat = CostIncreaseThisCombat;
         c.FreeThisTurn = FreeThisTurn;
+        c.ExtraEthereal = ExtraEthereal; c.ExtraRetain = ExtraRetain; c.FreeThisCombat = FreeThisCombat; c.RandomCost = RandomCost; c.Replay = Replay;
         c.UpgradedInCombat = UpgradedInCombat;
         c.Tag = Tag;
         return c;

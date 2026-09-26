@@ -60,6 +60,7 @@ public sealed partial class Combat
     /// <summary>A burrowed Tunneler whose block is broken is stunned, surfaces, and loses what is left of its block.</summary>
     private void OnEnemyBlockBroken(Enemy e)
     {
+        if (Has(RelicKind.HandDrill)) ApplyDebuff(e, PowerKind.Vulnerable, 2);
         if (e.Powers[(int)PowerKind.Burrowed] <= 0) return;
         e.Powers[(int)PowerKind.Burrowed] = 0;
         e.Block = 0;

@@ -1,6 +1,6 @@
 namespace SpireMonteCarlo.Sim;
 
-public readonly record struct FightResult(bool Won, int HpLost, int Turns, int HpAfter, IReadOnlyList<PotionDef>? PotionsLeft = null, IReadOnlyList<string>? LostCards = null);
+public readonly record struct FightResult(bool Won, int HpLost, int Turns, int HpAfter, IReadOnlyList<PotionDef>? PotionsLeft = null, IReadOnlyList<string>? LostCards = null, int GoldSpent = 0, int MaxHpGained = 0);
 
 public static class FightSimulator
 {
@@ -32,7 +32,7 @@ public static class FightSimulator
             trace?.Invoke($"    enemy turn: HP {hpBefore} -> {combat.Hp}");
         }
         trace?.Invoke($"  result: {combat.Result}, HP lost {combat.HpLost}, turns {combat.Turn}");
-        return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList());
+        return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList(), combat.GoldSpent, combat.MaxHpGained);
     }
 
     /// <summary>Research tool: each turn tries every ordered sequence of the cards now in hand, finishes the fight from each with the default bot on shuffled futures, and plays the sequence with the lowest average HP loss.</summary>
@@ -103,7 +103,7 @@ public static class FightSimulator
             if (combat.Result != CombatResult.Ongoing) break;
             combat.EndPlayerTurn();
         }
-        return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList());
+        return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList(), combat.GoldSpent, combat.MaxHpGained);
     }
 
     /// <summary>Research tool: plays a fight with the normal bot and, each turn, compares its plan with the best ordering of the hand (judged by rollouts of the normal bot), reporting the turns where the bot's plan is clearly worse.</summary>

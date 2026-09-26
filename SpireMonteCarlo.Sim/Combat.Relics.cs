@@ -30,6 +30,7 @@ public sealed partial class Combat
     private void CopyRelicState(Combat s)
     {
         _relics = s._relics;   // never changes during a combat
+        _rr = s._rr.Clone();
         _totalAttacks = s._totalAttacks; _totalSkills = s._totalSkills; _skillsThisTurn = s._skillsThisTurn; _exhaustedTotal = s._exhaustedTotal;
         _cardsLastTurn = s._cardsLastTurn; _carriedEnergy = s._carriedEnergy; _clayBlock = s._clayBlock; _hpLostThisRound = s._hpLostThisRound;
         _puzzleUsed = s._puzzleUsed; _tongueUsed = s._tongueUsed; _lizardUsed = s._lizardUsed; _vambraceUsed = s._vambraceUsed;
@@ -53,6 +54,7 @@ public sealed partial class Combat
         if (card != null)
         {
             if (Has(RelicKind.StrikeDummy) && card.IsStrike) bonus += 3;
+            if (Has(RelicKind.FakeStrikeDummy) && card.IsStrike) bonus += 1;
             if (Has(RelicKind.MiniatureCannon) && card.Kind == CardKind.Attack && card.Upgraded) bonus += 3;
         }
         return bonus + PlayerPowers[(int)PowerKind.Vigor];
@@ -204,8 +206,9 @@ public sealed partial class Combat
         return amount;
     }
 
-    private void RelicOnExhaust()
+    private void RelicOnExhaust(CardDef card)
     {
+        RelicOnExhaustCard(card);
         if (Has(RelicKind.CharonsAshes)) HitAllEnemies(3);
         _exhaustedTotal++;
         if (Has(RelicKind.JossPaper) && _exhaustedTotal % 5 == 0) DrawCards(1);
@@ -275,5 +278,6 @@ public sealed partial class Combat
         _postCombatDone = true;
         if (Has(RelicKind.MeatOnTheBone) && Hp * 2 <= MaxHp) Heal(Scaled(12));
         if (Has(RelicKind.BurningBlood)) Heal(Scaled(6));
+        RelicAfterVictoryExtra();
     }
 }

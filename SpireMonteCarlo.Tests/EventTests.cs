@@ -167,7 +167,7 @@ public class EventTests
         AdviceReport report = DecisionAdvisor.Evaluate(Data, snapshot, 60, 1);
         Assert.Equal(2, report.Options.Count);
         Assert.Contains(report.Options, o => o.Label == "Dive into the water");
-        Assert.Contains(report.Notes, n => n.Contains("SWORD_OF_STONE"));
+        Assert.DoesNotContain(report.Notes, n => n.Contains("SWORD_OF_STONE"));   // Sword of Stone is modelled now
     }
 
     [Fact]

@@ -48,8 +48,12 @@ public sealed class RewardPool
 
     public const double DefaultElo = 1547;   // the mean Ironclad card, for cards Codex has no Elo for
 
+    /// <summary>The character this pool belongs to (lower case: "ironclad").</summary>
+    public string Character { get; }
+
     public RewardPool(IReadOnlyDictionary<string, CodexCard> cards, IReadOnlyDictionary<string, CodexMetricRow> metrics, string character)
     {
+        Character = character.ToLowerInvariant();
         _elo = metrics.Where(kv => kv.Value.Elo != null).ToDictionary(kv => kv.Key, kv => kv.Value.Elo!.Value);
         string color = character.ToLowerInvariant();
         _byRarity = new Dictionary<CardRarity, string[]>();
@@ -91,6 +95,28 @@ public sealed class RewardPool
     {
         var candidates = _byRarity[rarity].Where(id => exclude == null || !exclude.Contains(id)).ToList();
         return candidates.Count == 0 ? null : candidates[rng.Next(candidates.Count)];
+    }
+
+    /// <summary>A random Power of the character's pool, whatever its rarity (Lasting Candy's extra card).</summary>
+    public string? RollPower(SimRng rng, ICollection<string> exclude)
+    {
+        var candidates = Enum.GetValues<CardRarity>().SelectMany(r => _byTypeAndRarity[("Power", r)]).Where(id => !exclude.Contains(id)).ToList();
+        return candidates.Count == 0 ? null : candidates[rng.Next(candidates.Count)];
+    }
+
+    /// <summary>Like <see cref="GenerateOffer"/> but colorless cards of the rolled rarity can be drawn too (Dingy Rug).</summary>
+    public string[] GenerateOfferWithColorless(RewardKind kind, RarityOdds odds, SimRng rng, int count = 3)
+    {
+        var offer = new List<string>(count);
+        for (int guard = 0; offer.Count < count && guard < 50; guard++)
+        {
+            CardRarity rarity = odds.Roll(kind, rng);
+            string[] pool = _byRarity[rarity].Concat(_colorless[rarity]).ToArray();
+            if (pool.Length == 0) continue;
+            string card = pool[rng.Next(pool.Length)];
+            if (!offer.Contains(card)) offer.Add(card);
+        }
+        return offer.ToArray();
     }
 
     public bool IsColorless(string cardId) => _colorlessIds.Contains(cardId);

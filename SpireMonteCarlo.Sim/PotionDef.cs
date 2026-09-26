@@ -22,6 +22,9 @@ public sealed class PotionDef
     /// <summary>Triggers by itself when the player would die (Fairy in a Bottle); never used by choice.</summary>
     public bool Automatic { get; init; }
 
+    /// <summary>Only ever handed out by something else (Petrified Toad); never dropped as a reward.</summary>
+    public bool Token { get; init; }
+
     private CardDef? _card;
 
     /// <summary>The effects wrapped as a card, which is what the combat's effect runner works on.</summary>
@@ -41,7 +44,7 @@ public static class PotionLibrary
     private const int PoolSizePerRarity = 16;
 
     private static readonly PotionDef[][] ModelledByRarity =
-        Enum.GetValues<PotionRarity>().Select(r => ById.Values.Where(p => p.Rarity == r).OrderBy(p => p.Id, StringComparer.Ordinal).ToArray()).ToArray();
+        Enum.GetValues<PotionRarity>().Select(r => ById.Values.Where(p => p.Rarity == r && !p.Token).OrderBy(p => p.Id, StringComparer.Ordinal).ToArray()).ToArray();
 
     /// <summary>
     /// A random potion the way the game rolls one (10% rare, 25% uncommon, else common; then uniform within the rarity).
@@ -56,8 +59,8 @@ public static class PotionLibrary
         return pick < modelled.Length ? modelled[pick] : null;
     }
 
-    private static PotionDef P(string id, PotionRarity rarity, Effect[] effects, bool target = false, bool anyTime = false, bool automatic = false) =>
-        new() { Id = id, Rarity = rarity, Effects = effects, NeedsTarget = target, AnyTime = anyTime, Automatic = automatic };
+    private static PotionDef P(string id, PotionRarity rarity, Effect[] effects, bool target = false, bool anyTime = false, bool automatic = false, bool token = false) =>
+        new() { Id = id, Rarity = rarity, Effects = effects, NeedsTarget = target, AnyTime = anyTime, Automatic = automatic, Token = token };
 
     private static Effect Buff(PowerKind power, int amount) => new(EffectOp.BuffSelf, amount, Power: power);
     private static Effect Debuff(PowerKind power, int amount) => new(EffectOp.DebuffEnemy, amount, Power: power);
@@ -78,6 +81,8 @@ public static class PotionLibrary
         yield return P("WEAK_POTION", C, new[] { Debuff(PowerKind.Weak, 3) }, target: true);
         yield return P("BLOOD_POTION", C, new[] { new Effect(EffectOp.HealPercent, 20) }, anyTime: true);
         yield return P("ATTACK_POTION", C, new[] { new Effect(EffectOp.GenerateFreeAttack, 1) });
+
+        yield return P("POTION_SHAPED_ROCK", C, new[] { new Effect(EffectOp.DamageFlat, 15) }, target: true, token: true);
 
         yield return P("HEART_OF_IRON", U, new[] { Buff(PowerKind.Plating, 7) });
         yield return P("FORTIFIER", U, new[] { new Effect(EffectOp.DoubleBlock, 0) });

@@ -48,6 +48,10 @@ public sealed class SimData
         }
     }
 
+    /// <summary>Every card id of a Codex color ("curse", "status", "event", "colorless", a character).</summary>
+    public IReadOnlyList<string> CardIdsOfColor(string color) =>
+        _codexCards.Values.Where(c => string.Equals(c.Color, color, StringComparison.OrdinalIgnoreCase)).Select(c => c.Id).OrderBy(id => id, StringComparer.Ordinal).ToList();
+
     /// <summary>The cards a character can be offered as rewards, with their Elo.</summary>
     public RewardPool PoolFor(string character)
     {

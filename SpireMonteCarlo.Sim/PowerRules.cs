@@ -5,6 +5,8 @@ public enum PowerKind
 {
     Strength,
     Dexterity,
+    /// <summary>On the player: every card drawn gets a random cost from 0 to 3 for the rest of the combat.</summary>
+    Confused,
     Vulnerable,
     Weak,
     Frail,

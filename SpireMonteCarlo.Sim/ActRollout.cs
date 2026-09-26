@@ -193,6 +193,13 @@ public sealed class ActRollout
         int potionSlots = PotionSlots;
 
         int gold = start.Gold, removalsUsed = start.RemovalsUsed, monsterFights = 0;
+        // Relic counters that outlive one fight: tea combats left, candle combats, Girya lifts, rewards seen, and so on.
+        var counters = new Dictionary<string, int>();
+        int Counter(string key) => counters.GetValueOrDefault(key);
+        void AddCounter(string key, int delta) => counters[key] = counters.GetValueOrDefault(key) + delta;
+        var paelsToothStash = new List<CardDef>();
+        var furCoatMarks = new HashSet<int>();
+        bool mawActive = false, venerableNext = false, fakeVenerableNext = false;
         var owned = new HashSet<string>(start.Relics);
         var relics = start.Relics.Select(RelicRules.Parse).Where(k => k != RelicKind.Unknown).ToList();
         bool Own(RelicKind k) => relics.Contains(k);
@@ -215,7 +222,34 @@ public sealed class ActRollout
         void Acquire(string? id, SimRng rng)
         {
             if (id == null || !owned.Add(id)) return;
-            if (NeowBoons.Has(id)) ApplyBoon(id, rng);
+            switch (id)
+            {
+                case "EMBER_TEA": counters["EMBER_TEA"] = 5; break;
+                case "BONE_TEA": counters["BONE_TEA"] = 1; break;
+                case "TEA_OF_DISCOURTESY": counters["TEA_OF_DISCOURTESY"] = 1; break;
+                case "PUMPKIN_CANDLE": counters["PUMPKIN_CANDLE"] = 5; break;
+                case "MAW_BANK": mawActive = true; break;
+                case "FUR_COAT":
+                    // Seven of the combats to come are marked: their enemies have 1 HP.
+                    var upcoming = Enumerable.Range(fights + 1, 10).ToList();
+                    rng.Shuffle(upcoming);
+                    foreach (int f in upcoming.Take(7)) furCoatMarks.Add(f);
+                    break;
+                case "PAELS_TOOTH":
+                    for (int i = 0; i < 5; i++)
+                    {
+                        int at = deck.FindIndex(c => c.Id.StartsWith("STRIKE_") || c.Id.StartsWith("DEFEND_"));
+                        if (at < 0) break;
+                        paelsToothStash.Add(deck[at]);
+                        deck.RemoveAt(at);
+                    }
+                    break;
+                case "TOUCH_OF_OROBAS":
+                    // The starter relic is replaced by its upgrade.
+                    if (owned.Remove("BURNING_BLOOD")) { relics.Remove(RelicKind.BurningBlood); Acquire("BLACK_BLOOD", rng); }
+                    break;
+            }
+            if (RelicPickups.Has(id)) ApplyBoon(id, rng);
             RelicKind kind = RelicRules.Parse(id);
             if (kind == RelicKind.Unknown) return;
             relics.Add(kind);
@@ -231,20 +265,41 @@ public sealed class ActRollout
             }
         }
 
-        // A card taken into the deck is upgraded on the way in by the matching Egg.
-        void AddToDeck(string id)
+        // Gold from fights and finds: Ectoplasm stops it, Bowler Hat adds a quarter, Dragon Fruit turns each gain into max HP.
+        void GainGold(int amount)
         {
-            CardDef card = _data.Cards.Get(id, false);
-            if (card.UpgradedForm != null && DeckPolicies.EggUpgrades(card.Kind, owned)) card = _data.Cards.Get(id, true);
+            if (amount <= 0 || Own(RelicKind.Ectoplasm)) return;
+            int gained = (int)Math.Round(amount * (Own(RelicKind.BowlerHat) ? 1.25 : 1.0));
+            gold += gained;
+            if (Own(RelicKind.DragonFruit)) GainMaxHp(1);
+        }
+
+        // A card taken into the deck is upgraded on the way in by the matching Egg; Bing Bong copies it, Lucky Fysh pays, Book of Five Rings heals.
+        void AddToDeck(string id, bool upgraded = false)
+        {
+            CardDef card = _data.Cards.Get(id, upgraded);
+            if (!upgraded && card.UpgradedForm != null && DeckPolicies.EggUpgrades(card.Kind, owned)) card = _data.Cards.Get(id, true);
             deck.Add(card);
+            if (Own(RelicKind.BingBong)) deck.Add(card);
+            if (Own(RelicKind.LuckyFysh)) GainGold(15);
+            if (Own(RelicKind.BookOfFiveRings))
+            {
+                AddCounter("BOOK_OF_FIVE_RINGS", 1);
+                if (Counter("BOOK_OF_FIVE_RINGS") % 5 == 0) hp = Math.Min(maxHp, hp + Scaled(20));
+            }
         }
 
         // A Neow boon does its pickup effect through the same event machinery as everything else that edits the deck.
         void ApplyBoon(string id, SimRng rng)
         {
             EventState st = MakeEventState(rng, 0);
-            NeowBoons.Apply(id, st);
-            ApplyEventState(st, "NEOW", rng);
+            RelicPickups.Apply(id, st);
+            ApplyEventState(st, "PICKUP", rng);
+        }
+
+        void UpgradeRandomCards(int count, SimRng rng)
+        {
+            for (int i = 0; i < count; i++) UpgradeAnyRandom(rng);
         }
 
         void UpgradeAnyRandom(SimRng rng)
@@ -258,9 +313,9 @@ public sealed class ActRollout
         // Potion drops follow PotionRewardOdds: the chance falls 10% after a drop and rises 10% after none.
         void RollPotionDrop(SimRng rng, bool elite)
         {
-            bool drop = rng.NextDouble() < potionOdds + (elite ? 0.125f : 0f);
+            bool drop = rng.NextDouble() < potionOdds + (elite ? 0.125f : 0f) || Own(RelicKind.WhiteBeastStatue);
             potionOdds += drop ? -0.1f : 0.1f;
-            if (!drop) return;
+            if (!drop || Own(RelicKind.Sozu)) return;
             PotionDef? found = PotionLibrary.Roll(rng);
             if (found == null) return;
             if (found.Id == "FRUIT_JUICE")
@@ -279,19 +334,33 @@ public sealed class ActRollout
         void VisitShop(SimRng rng)
         {
             List<ShopItem> stock = ShopModel.Generate(_pool, _relicPool, _ascension, owned, rng);
+            if (Own(RelicKind.MealTicket)) hp = Math.Min(maxHp, hp + Scaled(15));
+            double discount = (Own(RelicKind.MembershipCard) ? 0.5 : 1.0) * (Own(RelicKind.TheCourier) ? 0.8 : 1.0);
+            if (discount < 1.0) stock = stock.Select(i => i with { Price = (int)Math.Round(i.Price * discount) }).ToList();
+            if (Own(RelicKind.LordsParasol))
+            {
+                // Everything the merchant sells is taken at once.
+                foreach (ShopItem item in stock)
+                {
+                    if (item.Kind == ShopKind.Relic) Acquire(item.Id, rng);
+                    else if (item.Kind == ShopKind.Card) AddToDeck(item.Id);
+                    else if (PotionLibrary.Find(item.Id) is { } free && potions.Count < potionSlots && !Own(RelicKind.Sozu)) potions.Add(free);
+                }
+                return;
+            }
             for (int guard = 0; guard < 20; guard++)
             {
-                int removal = ShopModel.RemovalPrice(_ascension, removalsUsed);
-                if (gold >= removal && RemoveWorstCard()) { gold -= removal; removalsUsed++; continue; }
+                int removal = (int)Math.Round(ShopModel.RemovalPrice(_ascension, removalsUsed) * discount);
+                if (gold >= removal && RemoveWorstCard()) { gold -= removal; removalsUsed++; mawActive = false; continue; }
 
                 ShopItem? relic = stock.Where(i => i.Kind == ShopKind.Relic && i.Price <= gold && RelicRules.Parse(i.Id) != RelicKind.Unknown).OrderByDescending(i => i.Price).FirstOrDefault();
-                if (relic != null) { gold -= relic.Price; stock.Remove(relic); Acquire(relic.Id, rng); continue; }
+                if (relic != null) { gold -= relic.Price; mawActive = false; stock.Remove(relic); Acquire(relic.Id, rng); continue; }
 
                 double bar = PickPolicy.SkipElo(deck.Count);
                 ShopItem? card = stock.Where(i => i.Kind == ShopKind.Card && i.Price <= gold && _pool.HasElo(i.Id) && _pool.Elo(i.Id) >= bar).OrderByDescending(i => _pool.Elo(i.Id)).FirstOrDefault();
-                if (card != null) { gold -= card.Price; stock.Remove(card); AddToDeck(card.Id); continue; }
+                if (card != null) { gold -= card.Price; mawActive = false; stock.Remove(card); AddToDeck(card.Id); continue; }
 
-                ShopItem? potion = potions.Count < potionSlots ? stock.Where(i => i.Kind == ShopKind.Potion && i.Price <= gold).OrderByDescending(i => i.Price).FirstOrDefault() : null;
+                ShopItem? potion = potions.Count < potionSlots && !Own(RelicKind.Sozu) ? stock.Where(i => i.Kind == ShopKind.Potion && i.Price <= gold).OrderByDescending(i => i.Price).FirstOrDefault() : null;
                 if (potion != null && PotionLibrary.Find(potion.Id) is { } bought)
                 {
                     gold -= potion.Price;
@@ -327,6 +396,7 @@ public sealed class ActRollout
             maxHp = (int)Math.Round(st.MaxHp * PlayerHpScale);
             if (st.Hp > 0 && hp < 1) hp = 1;
             gold = st.Gold;
+            potionSlots = st.PotionSlots;
             potions = st.Potions.Select(PotionLibrary.Find).OfType<PotionDef>().ToList();
             foreach (string relic in st.PendingRelics) Acquire(relic, rng);
             if (hp <= 0) { diedTo = "EVENT_" + eventId; return false; }
@@ -402,7 +472,18 @@ public sealed class ActRollout
             if (TraceFights) Console.Error.WriteLine($"  fight {encounterId} lineup {string.Join("+", lineup)} hp {hp}/{maxHp} deck {string.Join(",", deck.Select(c => c.ToString()))} potions {string.Join(",", potions.Select(p => p.Id))} relics {string.Join(",", owned)}");
             int hpBefore = hp;
             int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
-            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes, relics: relics, hpScale: PlayerHpScale);
+            var combatRelics = new List<RelicKind>(relics);
+            if (Counter("EMBER_TEA") > 0) combatRelics.Add(RelicKind.EmberTeaActive);
+            if (Counter("BONE_TEA") > 0) combatRelics.Add(RelicKind.BoneTeaActive);
+            if (Counter("TEA_OF_DISCOURTESY") > 0) combatRelics.Add(RelicKind.TeaOfDiscourtesyActive);
+            if (venerableNext) { combatRelics.Add(RelicKind.VenerableTeaSetBonus); venerableNext = false; }
+            if (fakeVenerableNext) { combatRelics.Add(RelicKind.FakeVenerableTeaSetBonus); fakeVenerableNext = false; }
+            if (Counter("GIRYA") >= 1) combatRelics.Add(RelicKind.GiryaLift1);
+            if (Counter("GIRYA") >= 2) combatRelics.Add(RelicKind.GiryaLift2);
+            if (Counter("GIRYA") >= 3) combatRelics.Add(RelicKind.GiryaLift3);
+            if (furCoatMarks.Contains(fights)) combatRelics.Add(RelicKind.FurCoatMarked);
+            if (Own(RelicKind.PumpkinCandle) && Counter("PUMPKIN_CANDLE") <= 0) combatRelics.RemoveAll(k => k == RelicKind.PumpkinCandle);
+            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes, relics: combatRelics, hpScale: PlayerHpScale);
             log.Add(new FightLogEntry(encounterId, Real(hpBefore), result.Won ? Real(result.HpAfter) : 0, deck.Count, Real(Math.Min(result.HpLost, hpBefore)), result.Turns));
             if (!result.Won) { diedTo = encounterId; hp = 0; return false; }
 
@@ -414,28 +495,68 @@ public sealed class ActRollout
                 int i = deck.FindIndex(c => c.Id == lost);
                 if (i >= 0) deck.RemoveAt(i);
             }
+            maxHp += result.MaxHpGained;   // Feed and Chosen Cheese raise it for good
             hp = Math.Min(maxHp, result.HpAfter);   // Burning Blood and Meat on the Bone already healed inside the combat
+            gold = Math.Max(0, gold - result.GoldSpent);
             {
                 (int lo, int hi) = encounter.RoomType switch { "Elite" => (35, 45), "Boss" => (100, 100), _ => (10, 20) };
                 double poverty = _ascension >= 3 ? 0.75 : 1.0;   // Ascension 3 (Poverty)
-                gold += new SimRng(SimRng.Mix(fightSeed, 0x601D)).NextInclusive((int)(lo * poverty), (int)(hi * poverty));
+                GainGold(new SimRng(SimRng.Mix(fightSeed, 0x601D)).NextInclusive((int)(lo * poverty), (int)(hi * poverty)) + (Own(RelicKind.AmethystAubergine) ? 15 : 0));
+            }
+            // Counters that tick after every fight.
+            foreach (string tea in new[] { "EMBER_TEA", "BONE_TEA", "TEA_OF_DISCOURTESY", "PUMPKIN_CANDLE" })
+                if (Counter(tea) > 0) AddCounter(tea, -1);
+            if (Own(RelicKind.WarHammer) && encounter.RoomType == "Elite") UpgradeRandomCards(4, new SimRng(SimRng.Mix(fightSeed, 0x3A3)));
+            if (Own(RelicKind.SwordOfStone) && encounter.RoomType == "Elite")
+            {
+                AddCounter("SWORD_OF_STONE", 1);
+                if (Counter("SWORD_OF_STONE") >= 5) { owned.Remove("SWORD_OF_STONE"); relics.Remove(RelicKind.SwordOfStone); Acquire("SWORD_OF_JADE", new SimRng(SimRng.Mix(fightSeed, 0x5A5))); }
+            }
+            if (Own(RelicKind.WongosMysteryTicket))
+            {
+                AddCounter("WONGO", 1);
+                if (Counter("WONGO") == 5)
+                {
+                    var wongoRng = new SimRng(SimRng.Mix(fightSeed, 0xB0B));
+                    for (int i = 0; i < 3; i++) Acquire(_relicPool.Roll(wongoRng, owned), wongoRng);
+                }
+            }
+            if (paelsToothStash.Count > 0)
+            {
+                int back = new SimRng(SimRng.Mix(fightSeed, 0x7007)).Next(paelsToothStash.Count);
+                CardDef returned = paelsToothStash[back];
+                paelsToothStash.RemoveAt(back);
+                deck.Add(returned.UpgradedForm ?? returned);
             }
             if (reward is RewardKind dropKind) RollPotionDrop(new SimRng(SimRng.Mix(fightSeed, 0x9071)), dropKind == RewardKind.Elite);
             if (reward == RewardKind.Elite)
             {
                 var relicRng = new SimRng(SimRng.Mix(fightSeed, 0x2E11C));
                 Acquire(_relicPool.Roll(relicRng, owned), relicRng);
+                if (Own(RelicKind.BlackStar)) Acquire(_relicPool.Roll(relicRng, owned), relicRng);
             }
             if (reward is RewardKind kind)
             {
                 var rewardRng = new SimRng(SimRng.Mix(fightSeed, 0xCA2D));
                 // Prayer Wheel adds a second card reward after ordinary fights; White Star adds a rare-only one after elites.
                 int screens = 1 + (kind == RewardKind.Normal && Own(RelicKind.PrayerWheel) ? 1 : 0);
+                bool candyCombat = false;
+                if (Own(RelicKind.LastingCandy)) { AddCounter("CANDY", 1); candyCombat = Counter("CANDY") % 2 == 0; }   // every other combat's rewards
+                bool flawless = result.HpLost == 0;
                 for (int screen = 0; screen < screens; screen++)
                 {
-                    string[] offer = _pool.GenerateOffer(kind, rarity, rewardRng);
+                    string[] offer = Own(RelicKind.DingyRug) ? _pool.GenerateOfferWithColorless(kind, rarity, rewardRng) : _pool.GenerateOffer(kind, rarity, rewardRng);
+                    if (candyCombat && screen == 0 && _pool.RollPower(rewardRng, offer) is { } power) offer = offer.Append(power).ToArray();
+                    bool upgraded = (Own(RelicKind.SilverCrucible) && Counter("CRUCIBLE") < 3) || (Own(RelicKind.LavaLamp) && flawless);
+                    if (Own(RelicKind.SilverCrucible) && Counter("CRUCIBLE") < 3) AddCounter("CRUCIBLE", 1);
                     int pick = PickPolicy.Choose(offer, _pool, deck.Count, rewardRng);
-                    if (pick >= 0) AddToDeck(offer[pick]);
+                    if (pick < 0 && Own(RelicKind.Driftwood))
+                    {
+                        // Nothing in the offer was worth taking: reroll it once.
+                        offer = Own(RelicKind.DingyRug) ? _pool.GenerateOfferWithColorless(kind, rarity, rewardRng) : _pool.GenerateOffer(kind, rarity, rewardRng);
+                        pick = PickPolicy.Choose(offer, _pool, deck.Count, rewardRng);
+                    }
+                    if (pick >= 0) AddToDeck(offer[pick], upgraded && _data.Cards.Get(offer[pick], false).UpgradedForm != null);
                 }
                 if (kind == RewardKind.Elite && Own(RelicKind.WhiteStar))
                 {
@@ -474,10 +595,12 @@ public sealed class ActRollout
             at = step == 0 && start.ForcedNext is MapCoordinate forced && reachable.Contains(forced) ? forced : ChooseNext(reachable, hp, maxHp, pathRng);
             MapPointSnapshot node = _points[at];
             string type = node.Type;
+            if (mawActive) GainGold(12);
 
             if (type == "Unknown")
             {
                 type = RollUnknown(ref mOdds, ref tOdds, ref sOdds, pathRng);
+                if (type == "Monster" && Own(RelicKind.JuzuBracelet)) type = "Event";   // no ordinary fights in ? rooms
                 if (Own(RelicKind.Planisphere)) hp = Math.Min(maxHp, hp + Scaled(5));
             }
 
@@ -490,17 +613,37 @@ public sealed class ActRollout
                     if (!Fight(NextOf(elites, ref eliteDrawn, () => Sample(_elitePool, pathRng)), RewardKind.Elite)) return Result(false);
                     break;
                 case "RestSite":
-                    if (Own(RelicKind.EternalFeather)) hp = Math.Min(maxHp, hp + Scaled(3 * (deck.Count / 5)));
-                    // The rest site right before the boss is for healing; the others heal when the player is hurt and upgrade otherwise.
-                    bool beforeBoss = _snap.Map!.Boss is MapCoordinate bossAt && node.Row >= bossAt.Row - 1;
-                    if (hp < (beforeBoss ? 0.9 : 0.6) * maxHp)
                     {
-                        hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp) + (Own(RelicKind.RegalPillow) ? Scaled(15) : 0));
-                        if (Own(RelicKind.StoneHumidifier)) GainMaxHp(5);
+                        if (Own(RelicKind.EternalFeather)) hp = Math.Min(maxHp, hp + Scaled(3 * (deck.Count / 5)));
+                        if (Own(RelicKind.VenerableTeaSet)) venerableNext = true;
+                        if (Own(RelicKind.FakeVenerableTeaSet)) fakeVenerableNext = true;
+                        // The rest site right before the boss is for healing; the others heal when the player is hurt and do something else otherwise.
+                        bool beforeBoss = _snap.Map!.Boss is MapCoordinate bossAt && node.Row >= bossAt.Row - 1;
+                        bool needHeal = hp < (beforeBoss ? 0.9 : 0.6) * maxHp;
+                        bool tent = Own(RelicKind.MiniatureTent);
+                        if (needHeal || (tent && hp < maxHp))
+                        {
+                            hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp) + (Own(RelicKind.RegalPillow) ? Scaled(15) : 0));
+                            if (Own(RelicKind.StoneHumidifier)) GainMaxHp(5);
+                            if (Own(RelicKind.DreamCatcher))
+                            {
+                                string[] dream = _pool.GenerateOffer(RewardKind.Normal, rarity, pathRng);
+                                int dreamPick = PickPolicy.Choose(dream, _pool, deck.Count, pathRng);
+                                if (dreamPick >= 0) AddToDeck(dream[dreamPick]);
+                            }
+                            if (Own(RelicKind.TinyMailbox) && !Own(RelicKind.Sozu))
+                                for (int p = 0; p < 2; p++)
+                                    if (potions.Count < potionSlots && PotionLibrary.Roll(pathRng) is { } mail) potions.Add(mail);
+                        }
+                        if (!needHeal || tent)
+                        {
+                            if (Own(RelicKind.PumpkinCandle) && Counter("PUMPKIN_CANDLE") <= 0) counters["PUMPKIN_CANDLE"] = 5;   // kindle it again
+                            else if (Own(RelicKind.Girya) && Counter("GIRYA") < 3) AddCounter("GIRYA", 1);   // lift
+                            else if (Own(RelicKind.Shovel)) Acquire(_relicPool.Roll(pathRng, owned), pathRng);   // dig up a relic instead of upgrading
+                            else UpgradeBest(deck);
+                        }
+                        break;
                     }
-                    else if (Own(RelicKind.Shovel)) Acquire(_relicPool.Roll(pathRng, owned), pathRng);   // dig up a relic instead of upgrading
-                    else UpgradeBest(deck);
-                    break;
                 case "Shop":
                     VisitShop(pathRng);
                     break;

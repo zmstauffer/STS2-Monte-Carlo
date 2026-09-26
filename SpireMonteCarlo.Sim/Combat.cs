@@ -132,6 +132,8 @@ public sealed partial class Combat
         MaxEnergy = maxEnergy;
 
         var cards = deck.Select(c => c.Instantiate()).ToList();
+        if (Has(RelicKind.GhostSeed))
+            foreach (CardDef c in cards) if (c.Id.StartsWith("STRIKE_") || c.Id.StartsWith("DEFEND_")) c.ExtraEthereal = true;
         _cardsChangeInPlace = cards.Any(ChangesInPlace);
         Rng.Shuffle(cards);
         // Innate cards start on top of the draw pile.
@@ -160,7 +162,7 @@ public sealed partial class Combat
     private Enemy CreateEnemy(MonsterDef def)
     {
         (int lo, int hi) = ToughEnemies ? (def.HpMinTough, def.HpMaxTough) : (def.HpMin, def.HpMax);
-        int enemyHp = Rng.NextInclusive(lo, Math.Max(lo, hi));
+        int enemyHp = Has(RelicKind.FurCoatMarked) ? 1 : Rng.NextInclusive(lo, Math.Max(lo, hi));
         var enemy = new Enemy { Def = def, Index = Enemies.Count, Hp = enemyHp, MaxHp = enemyHp };
         foreach (InnatePower innate in def.Innate)
         {
@@ -178,17 +180,21 @@ public sealed partial class Combat
     {
         if (card.Cost == CardDef.Unplayable) return CardDef.Unplayable;
         if (card.Cost == CardDef.XCost) return CardDef.XCost;
-        if (card.FreeThisTurn) return 0;
+        if (card.FreeThisTurn || card.FreeThisCombat) return 0;
+        if (RelicMakesCardFree(card)) return 0;
         if (PlayerPowers[(int)PowerKind.Corruption] > 0 && card.Kind == CardKind.Skill) return 0;
         if (PlayerPowers[(int)PowerKind.FreeAttack] > 0 && card.Kind == CardKind.Attack) return 0;
-        if (PlayerPowers[(int)PowerKind.Tangled] > 0 && card.Kind == CardKind.Attack) return card.CurrentCost + PlayerPowers[(int)PowerKind.Tangled];
-        return card.CurrentCost;
+        int baseCost = card.RandomCost >= 0 ? Math.Max(0, card.RandomCost + card.CostIncreaseThisCombat - card.CostReductionThisTurn) : card.CurrentCost;
+        baseCost = RelicCostAdjust(card, baseCost);
+        if (PlayerPowers[(int)PowerKind.Tangled] > 0 && card.Kind == CardKind.Attack) return baseCost + PlayerPowers[(int)PowerKind.Tangled];
+        return baseCost;
     }
 
     public bool CanPlay(CardDef card)
     {
         if (Result != CombatResult.Ongoing || card.Cost == CardDef.Unplayable) return false;
         if (PlayerPowers[(int)PowerKind.Ringing] > 0 && CardsPlayedThisTurn >= 1) return false;
+        if (Has(RelicKind.VelvetChoker) && _rr.HandPlaysThisTurn >= 6) return false;
         if (PlayerPowers[(int)PowerKind.Smoggy] > 0 && card.Kind == CardKind.Skill && _skillsThisTurn >= 1) return false;
         int cost = EffectiveCost(card);
         return cost == CardDef.XCost || cost <= Energy;
@@ -212,7 +218,7 @@ public sealed partial class Combat
     /// <summary>Block a card of <paramref name="baseBlock"/> would give right now, with Dexterity, Frail, and Unmovable.</summary>
     public int PlayerBlockGain(int baseBlock)
     {
-        double b = Math.Max(0, baseBlock + PlayerPowers[(int)PowerKind.Dexterity]);
+        double b = Math.Max(0, baseBlock + PlayerPowers[(int)PowerKind.Dexterity] + RelicDexterityBonus());
         if (PlayerPowers[(int)PowerKind.Frail] > 0) b *= 0.75;
         if (PlayerPowers[(int)PowerKind.Unmovable] > 0 && _cardBlockGainsThisTurn < PlayerPowers[(int)PowerKind.Unmovable]) b *= 2;
         return (int)Math.Floor(b);
@@ -274,6 +280,14 @@ public sealed partial class Combat
         }
         if (Result != CombatResult.Ongoing) return;
 
+        bool extraTurn = RelicBeforeHandDiscard();
+        if (extraTurn)
+        {
+            // Pael's Eye: an idle turn is exhausted away and the player takes another one at once.
+            if (Result == CombatResult.Ongoing) { _rr.ExtraTurnPending = true; StartPlayerTurn(); }
+            return;
+        }
+
         // Status cards still in hand hurt (Burn, Infection, Toxic, ...).
         foreach (CardDef card in Hand.ToList())
         {
@@ -284,8 +298,8 @@ public sealed partial class Combat
 
         foreach (CardDef card in Hand.ToList())
         {
-            if (card.Ethereal || (PlayerPowers[(int)PowerKind.Hex] > 0 && card.Kind is not (CardKind.Status or CardKind.Curse))) ExhaustCard(card, causedByEthereal: true);
-            else if (!card.Retain) DiscardPile.Add(card);
+            if (card.IsEthereal || (PlayerPowers[(int)PowerKind.Hex] > 0 && card.Kind is not (CardKind.Status or CardKind.Curse))) ExhaustCard(card, causedByEthereal: true);
+            else if (!card.IsRetained && !RetainsWholeHand) DiscardPile.Add(card);
             else continue;
             Hand.Remove(card);
         }
@@ -330,7 +344,8 @@ public sealed partial class Combat
         _cardBlockGainsThisTurn = 0;
         _cardsExhaustedThisTurn = 0;
         _lostHpThisTurn = false;
-        if (PlayerPowers[(int)PowerKind.Barricade] == 0) Block = Has(RelicKind.SturdyClamp) ? Math.Min(Block, 10) : 0;
+        if (_rr.BlurTurns > 0 && Turn > 1) _rr.BlurTurns--;   // Blur keeps the block for one turn
+        else if (PlayerPowers[(int)PowerKind.Barricade] == 0) Block = Has(RelicKind.SturdyClamp) ? Math.Min(Block, 10) : 0;
         if (Turn > 1 && PlayerPowers[(int)PowerKind.Plating] > 0) PlayerPowers[(int)PowerKind.Plating]--;
         RampartAtTurnStart();
         foreach (Enemy e in Enemies)
@@ -344,14 +359,17 @@ public sealed partial class Combat
                 c.CostReductionThisTurn = 0;
                 c.FreeThisTurn = false;
             }
-        Energy = MaxEnergy + PlayerPowers[(int)PowerKind.Pyre];
-        if (Turn == 1) RelicCombatStart();
-        int extraDraw = RelicTurnStart();
+        Energy = MaxEnergy + PlayerPowers[(int)PowerKind.Pyre] + TurnEnergyBonus();
+        if (Turn == 1) { RelicCombatStart(); RelicBeforeFirstDraw(); }
+        RelicTurnStartEffects();
+        int extraDraw = RelicTurnStart() + ExtraHandDraw();
 
         PullAttacksFromDiscard(PlayerPowers[(int)PowerKind.Aggression]);
         PlayerPowers[(int)PowerKind.Strength] += PlayerPowers[(int)PowerKind.DemonForm];
-        DrawCards(HandSize + extraDraw, fromHandDraw: true);
+        DrawCards(Math.Max(0, HandSize + extraDraw), fromHandDraw: true);
         RelicAfterDraw();
+        if (Turn == 1) RelicAfterFirstDraw();
+        RelicAfterEveryDraw();
 
         if (PlayerPowers[(int)PowerKind.CrimsonMantle] > 0)
         {
@@ -456,6 +474,7 @@ public sealed partial class Combat
         }
         if (lost <= 0) return false;
 
+        lost = RelicMinimumDamage(lost, fromCard);
         enemy.Hp -= lost;
         if (fromCard && enemy.Powers[(int)PowerKind.Skittish] > 0 && !enemy.SkittishUsed)
         {

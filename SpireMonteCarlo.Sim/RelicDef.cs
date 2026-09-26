@@ -34,6 +34,29 @@ public enum RelicKind
     MoltenEgg, ToxicEgg, FrozenEgg, OldCoin, PrayerWheel, WhiteStar, Shovel,
     // rare relic acting in combat
     MummifiedHand,
+    // shop relics
+    Brimstone, BeltBuckle, Bread, BurningSticks, ChemicalX, GhostSeed, RingingTriangle, ScreamingFlagon, SlingOfCourage, TheAbacus, Toolbox,
+    // common, uncommon and rare relics that act in combat
+    GamblingChip, RazorTooth, UnsettlingLamp, VexingPuzzlebox, PetrifiedToad, ReptileTrinket,
+    // Ironclad's upgraded starter relic
+    BlackBlood,
+    // event relics
+    BigMushroom, DaughterOfTheWind, FakeAnchor, FakeBloodVial, FakeHappyFlower, FakeOrichalcum, FakeSneckoEye, FakeStrikeDummy, ForgottenSoul,
+    HandDrill, HistoryCourse, LostWisp, MrStruggles, PollinousCore, RoyalPoison, SwordOfJade, TheBoot, ChosenCheese,
+    // set by the rollout for one combat when a tea or rest-site relic says "the next combat"
+    EmberTeaActive, BoneTeaActive, TeaOfDiscourtesyActive, VenerableTeaSetBonus, FakeVenerableTeaSetBonus,
+    // Ancient relics that act in combat
+    BlessedAntler, BloodSoakedRose, BrilliantScarf, ChoicesParadox, Crossbow, DelicateFrond, DiamondDiadem, Ectoplasm, Fiddle, IronClub,
+    JeweledMask, MusicBox, PaelsBlood, PaelsEye, PaelsFlesh, PaelsTears, PhilosophersStone, PumpkinCandle, RadiantPearl, RunicPyramid, Sai,
+    SealOfGold, SneckoEye, Sozu, SpikedGauntlets, ThrowingAxe, ToastyMittens, VelvetChoker, VeryHotCocoa, WhisperingEarring, BiiigHug,
+    AlchemicalCoffer, PhialHolster,
+    // relics that change what the run collects, spends, or does between fights
+    AmethystAubergine, BookOfFiveRings, JuzuBracelet, MealTicket, VenerableTeaSet, BowlerHat, LastingCandy, LuckyFysh, TinyMailbox, Girya, TheCourier,
+    WhiteBeastStatue, BlackStar, Driftwood, DingyRug, DragonFruit, LavaLamp, MembershipCard, MiniatureTent, LordsParasol, SilverCrucible, DreamCatcher,
+    MawBank, WongosMysteryTicket, SwordOfStone, BingBong, DarkstonePeriapt, FurCoat, PaelsTooth, WarHammer, EmberTea, BoneTea, TeaOfDiscourtesy,
+    FakeVenerableTeaSet, TouchOfOrobas,
+    // set by the rollout for one combat
+    GiryaLift1, GiryaLift2, GiryaLift3, FurCoatMarked,
 }
 
 public static class RelicRules
