@@ -11,7 +11,7 @@ public sealed class Enemy
     public required MonsterDef Def { get; init; }
     public int Index { get; set; }
     public int Hp { get; set; }
-    public int MaxHp { get; init; }
+    public int MaxHp { get; set; }
     public int Block { get; set; }
     public int[] Powers { get; } = new int[PowerRules.Count];
 

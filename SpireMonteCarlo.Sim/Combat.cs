@@ -514,7 +514,7 @@ public sealed partial class Combat
         }
         e.Hp = 0;
         int stock = e.Powers[(int)PowerKind.Stock];
-        if (stock > 0) Spawn("AXEBOT", slot: e.SlotName, configure: n => { n.Powers[(int)PowerKind.Stock] = stock - 1; n.State["stockSet"] = 1; });
+        if (stock > 0) Spawn("AXEBOT", slot: e.SlotName, configure: n => { n.Powers[(int)PowerKind.Stock] = stock - 1; n.State["stockSet"] = 1; int bonus = 10 * (3 - stock); n.Hp += bonus; n.MaxHp += bonus; });
         RelicOnEnemyDeath();
         OnAllyDied(e);
         foreach (Enemy ally in Enemies.ToList())
