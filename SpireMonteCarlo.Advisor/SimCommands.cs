@@ -184,12 +184,13 @@ public static class SimCommands
         {
             Contracts.RunSnapshot snap = Contracts.SnapshotSerializer.Deserialize(File.ReadAllText(mapPath));
             snap.Run.Character = "ironclad"; snap.Run.Ascension = ascension; snap.Run.Act = 1;
-            snap.Run.CurrentHp = snap.Run.MaxHp = ironclad.StartingHp;
+            snap.Run.MaxHp = ironclad.StartingHp;
+            snap.Run.CurrentHp = ascension >= 2 ? (int)Math.Round(0.8 * ironclad.StartingHp) : ironclad.StartingHp;   // the first Ancient heals 80% of max HP from A2
             snap.Relics = new List<string> { "BURNING_BLOOD" };
             snap.Map!.Current = null; snap.Map.Visited = new();
             snap.Odds = null;
             snap.Plan = new Contracts.ActPlan { ActId = variant };
-            rollouts.Add(new ActRollout(data, snap) { PlayerHpScale = double.Parse(Option(args, "--hp-scale") ?? ActRollout.CalibratedPlayerHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture) });
+            rollouts.Add(new ActRollout(data, snap) { ProbeHpScale = double.Parse(Option(args, "--probe-scale") ?? ActRollout.CalibratedProbeHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture), PlayerHpScale = double.Parse(Option(args, "--hp-scale") ?? ActRollout.CalibratedPlayerHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture) });
         }
 
         var results = new RolloutResult[n];
@@ -203,6 +204,8 @@ public static class SimCommands
         var realFights = stats.Values.Where(s => s.Act == 1).GroupBy(s => s.RoomType.ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.Sum(s => s.Characters.Where(c => c.Character == "IRONCLAD").Sum(c => c.Total)));
         double realBoss = Math.Max(1, realFights.GetValueOrDefault("boss"));
+        var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
+        if (probed.Count > 0) Console.WriteLine($"Act 2 elite probe (3 fights from the post-boss HP), runs that reached it: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won");
         Console.WriteLine($"Fights per run: normal {PerRun("Monster"):F1} (real {realFights.GetValueOrDefault("monster") / realBoss:F1}), elite {PerRun("Elite"):F1} (real {realFights.GetValueOrDefault("elite") / realBoss:F1})");
         var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());
         Console.WriteLine($"{"encounter",-32} {"room",-8} {"fights",7} {"sim fatal%",11} {"real fatal%",12}");

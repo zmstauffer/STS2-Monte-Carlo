@@ -13,6 +13,9 @@ public sealed class OptionReport
     public double MeanHpEnd { get; init; }
     public double MeanHpEndIfSurvived { get; init; }
     public double MeanFightsWon { get; init; }
+
+    /// <summary>Share of next-act elites the end-of-act deck beats, over the runs that reach the end of the act; NaN when there is no probe (Act 3).</summary>
+    public double ProbeWinRate { get; init; } = double.NaN;
     /// <summary>The single number options are ranked by: survival first, with HP left as a tiebreaker.</summary>
     public double Value { get; init; }
 
@@ -43,8 +46,16 @@ public sealed class AdviceReport
 
 public static class AdviceEngine
 {
-    /// <summary>Value of one rollout: surviving the act is what counts; HP left is the tiebreaker.</summary>
-    public static double ValueOf(RolloutResult r) => r.Survived ? 1.0 + 0.5 * r.HpEnd / r.MaxHp : 0.0;
+    /// <summary>
+    /// Value of one rollout: surviving the act is what counts, then HP left, then how the end-of-act deck does against a few
+    /// next-act elites (which is where scaling cards pay off, and nearly everything survives Act 1).
+    /// </summary>
+    public static double ValueOf(RolloutResult r)
+    {
+        if (!r.Survived) return 0.0;
+        double value = 1.0 + 0.5 * r.HpEnd / r.MaxHp;
+        return r.ProbeFights > 0 ? value + 0.5 * r.ProbeWins / r.ProbeFights : value;
+    }
 
     /// <summary>Compares taking each offered card against skipping, over many simulated futures of the act.</summary>
     public static AdviceReport EvaluateCardReward(SimData data, RunSnapshot snapshot, int rollouts, ulong seed)
@@ -91,6 +102,7 @@ public static class AdviceEngine
                 MeanHpEnd = hp.Average(),
                 MeanHpEndIfSurvived = survivors == 0 ? 0 : rs.Where(r => r.Survived).Average(r => r.HpEnd),
                 MeanFightsWon = rs.Average(r => r.FightsWon),
+                ProbeWinRate = rs.Where(r => r.Survived && r.ProbeFights > 0).Select(r => (double)r.ProbeWins / r.ProbeFights).DefaultIfEmpty(double.NaN).Average(),
                 Value = values.Average(),
                 DeltaSurvival = dSurv, DeltaSurvivalSe = dSurvSe,
                 DeltaHp = dHp, DeltaHpSe = dHpSe,

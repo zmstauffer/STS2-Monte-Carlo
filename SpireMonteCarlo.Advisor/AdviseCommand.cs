@@ -47,12 +47,12 @@ public static class AdviseCommand
         Console.WriteLine();
 
         OptionReport skip = report.Options.First(o => o.CardId == null);
-        Console.WriteLine($"{"option",-22} {"survive",8} {"HP left",8} {"vs skip (survive)",20} {"vs skip (score)",18}");
+        Console.WriteLine($"{"option",-22} {"survive",8} {"HP left",8} {"next-act elites",16} {"vs skip (survive)",20} {"vs skip (score)",18}");
         foreach (OptionReport o in report.Options)
         {
             string versus = o.CardId == null ? "" : $"{100 * o.DeltaSurvival,+6:F1} pts +/-{200 * o.DeltaSurvivalSe:F1}";
             string score = o.CardId == null ? "" : $"{o.DeltaValue,+6:F3} +/-{2 * o.DeltaValueSe:F3}{(o.ClearlyDifferentFromSkip ? "" : "  (unclear)")}";
-            Console.WriteLine($"{o.Label,-22} {100 * o.SurvivalRate,7:F1}% {o.MeanHpEnd,8:F1} {versus,20} {score,18}");
+            Console.WriteLine($"{o.Label,-22} {100 * o.SurvivalRate,7:F1}% {o.MeanHpEnd,8:F1} {(double.IsNaN(o.ProbeWinRate) ? "" : $"{100 * o.ProbeWinRate:F0}% won"),16} {versus,20} {score,18}");
         }
 
         Console.WriteLine();

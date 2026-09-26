@@ -117,4 +117,39 @@ public class AdviceEngineTests
         Assert.Equal(a.Options.Select(o => o.Value), b.Options.Select(o => o.Value));
         Assert.All(a.Options, o => Assert.InRange(o.SurvivalRate, 0, 1));
     }
+
+    private static RunSnapshot IroncladReward(int act)
+    {
+        RunSnapshot snapshot = Fixture("shop_act1.json");
+        snapshot.Decision = DecisionType.CardReward;
+        snapshot.Run.Character = "ironclad";
+        snapshot.Run.Act = act;
+        snapshot.Run.CurrentHp = snapshot.Run.MaxHp = 80;
+        snapshot.Deck = Enumerable.Repeat("STRIKE_IRONCLAD", 5).Concat(Enumerable.Repeat("DEFEND_IRONCLAD", 4)).Append("BASH")
+            .Select(id => new CardSnapshot { Id = id }).ToList();
+        snapshot.Offer.Cards = new List<CardSnapshot> { new() { Id = "POMMEL_STRIKE" } };
+        snapshot.Relics = new List<string> { "BURNING_BLOOD" };
+        return snapshot;
+    }
+
+    [Fact]
+    public void TheNextActProbeIsReportedBeforeAct3AndNotIn3()
+    {
+        SimData? data = Data();
+        if (data == null) return;
+        AdviceReport act1 = AdviceEngine.EvaluateCardReward(data, IroncladReward(1), rollouts: 300, seed: 3);
+        Assert.Contains(act1.Options, o => !double.IsNaN(o.ProbeWinRate));
+        Assert.All(act1.Options.Where(o => !double.IsNaN(o.ProbeWinRate)), o => Assert.InRange(o.ProbeWinRate, 0, 1));
+        AdviceReport act3 = AdviceEngine.EvaluateCardReward(data, IroncladReward(3), rollouts: 100, seed: 3);
+        Assert.All(act3.Options, o => Assert.True(double.IsNaN(o.ProbeWinRate)));
+    }
+
+    [Fact]
+    public void ARolloutValuesBeatingTheNextActEliteProbeAboveLosingIt()
+    {
+        var log = new List<FightLogEntry>();
+        RolloutResult Result(int wins) => new(true, 40, 80, 8, 8, null, 0, new List<string>(), log, ProbeFights: 3, ProbeWins: wins);
+        Assert.True(AdviceEngine.ValueOf(Result(3)) > AdviceEngine.ValueOf(Result(1)));
+        Assert.Equal(0.0, AdviceEngine.ValueOf(new RolloutResult(false, 0, 80, 3, 4, "X", 0, new List<string>(), log, 0, 0)));
+    }
 }

@@ -4,7 +4,7 @@ namespace SpireMonteCarlo.Sim;
 
 public sealed record FightLogEntry(string Encounter, int HpBefore, int HpAfter, int DeckSize);
 
-public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log);
+public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0);
 
 /// <summary>
 /// One simulated future of the current act, from the snapshot's position to the end of the act's boss fight.
@@ -31,14 +31,26 @@ public sealed class ActRollout
     /// </summary>
     public double PlayerHpScale { get; init; } = CalibratedPlayerHpScale;
 
-    // Re-fit after relics went in (before them: 3.25): 2.25 gives ~55% Act 1 survival, 2.4 ~62% with per-elite fatal rates
-    // near the real ones, 2.5 ~70% (real ~65%). Bosses are still off: Lagavulin Matriarch (~44% vs 17% real), The Kin and
-    // Vantom too lethal, Waterfall Giant too easy. Still unmodelled: the Ancient boon, shops, events, and most rare relics.
-    public const double CalibratedPlayerHpScale = 2.4;
+    // Re-fit after relics went in and Act 1 started at 80% HP like the real A2+ runs (before: 3.25): 2.6 gives 65% Act 1
+    // survival (real ~65%) with per-elite fatal rates near the real ones; 2.8 gives 75%, 3.0 gives 82%. Bosses are still off:
+    // Lagavulin Matriarch and The Kin too lethal, Waterfall Giant too easy. Still unmodelled: the Ancient boon, shops, events,
+    // and most rare relics.
+    public const double CalibratedPlayerHpScale = 2.6;
+
+    /// <summary>
+    /// The HP scale used in the next-act probe. Act 2 enemies hit harder than the Act 1 scale can absorb for a deck that has
+    /// only Act 1's cards and relics, so the probe is fit separately: real Ironclad players lose to Act 2 elites 7-12% of the time.
+    /// </summary>
+    public double ProbeHpScale { get; init; } = CalibratedProbeHpScale;
+
+    public const double CalibratedProbeHpScale = 1.5;
     private readonly RewardPool _pool;
     private readonly int _ascension;
     private readonly RelicPool _relicPool;
-    private readonly string[] _weakPool, _normalPool, _elitePool, _bossPool;
+    private readonly string[] _weakPool, _normalPool, _elitePool, _bossPool, _nextElitePool;
+
+    /// <summary>How many next-act elites the end-of-act deck fights in the probe.</summary>
+    public const int ProbeFightCount = 3;
 
     public ActRollout(SimData data, RunSnapshot snapshot)
     {
@@ -59,6 +71,10 @@ public sealed class ActRollout
         _normalPool = actEncounters.Where(e => e.RoomType == "Monster" && !e.IsWeak).Select(e => e.Id).ToArray();
         _elitePool = actEncounters.Where(e => e.RoomType == "Elite").Select(e => e.Id).ToArray();
         _bossPool = actEncounters.Where(e => e.RoomType == "Boss").Select(e => e.Id).ToArray();
+
+        string nextVariant = snapshot.Run.Act < 3 ? DefaultVariant(snapshot.Run.Act + 1) : "";
+        _nextElitePool = nextVariant == "" ? Array.Empty<string>()
+            : data.Encounters.All.Where(e => e.RoomType == "Elite" && (e.Act ?? "").Replace(" ", "").Contains(nextVariant, StringComparison.OrdinalIgnoreCase)).Select(e => e.Id).ToArray();
     }
 
     private static string DefaultVariant(int act) => act switch { 1 => "Overgrowth", 2 => "Hive", _ => "Glory" };
@@ -89,6 +105,7 @@ public sealed class ActRollout
 
         MapCoordinate at = _snap.Map.Current ?? StartPoint();
         string? diedTo = null;
+        int probeFights = 0, probeWins = 0;
 
         var potions = _snap.Potions.Select(p => PotionLibrary.Find(p.Id)).OfType<PotionDef>().ToList();
         float potionOdds = PotionBaseOdds;
@@ -145,6 +162,30 @@ public sealed class ActRollout
                 maxHp += gain; hp += gain;
             }
             else if (potions.Count < potionSlots) potions.Add(found);
+        }
+
+        // The end-of-act deck fights a few next-act elites, each from the same post-boss HP, so decks that scale (and survive
+        // Act 1 only barely) are told apart from decks that just get through it.
+        void Probe()
+        {
+            if (_nextElitePool.Length == 0) return;
+            int postBossHp = hp + (int)Math.Round((maxHp - hp) * (_ascension >= 2 ? 0.8 : 1.0));   // the next act's Ancient heals 80% of the missing HP from A2
+            double rescale = ProbeHpScale / PlayerHpScale;
+            int probeMax = (int)Math.Round(maxHp * rescale), start = (int)Math.Round(postBossHp * rescale);
+            var order = _nextElitePool.ToList();
+            new SimRng(SimRng.Mix(seed, 0x9B0BE)).Shuffle(order);
+            for (int i = 0; i < ProbeFightCount && i < order.Count; i++)
+            {
+                if (!_data.Encounters.Contains(order[i])) continue;
+                EncounterDef encounter = _data.Encounters.Get(order[i]);
+                ulong probeSeed = SimRng.Mix(seed, 0x9B0BE + (ulong)i + 1);
+                string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(probeSeed, 1)));
+                if (lineup.Any(m => !_data.Monsters.Contains(m))) continue;
+                FightResult r = FightSimulator.Run(deck, start, probeMax, lineup.Select(_data.Monsters.Get), _ascension, probeSeed, _bot, altStarts: encounter.AltStarts,
+                    services: _data.Services, potions: potions.ToList(), stakes: 1, relics: relics, hpScale: ProbeHpScale);
+                probeFights++;
+                if (r.Won) probeWins++;
+            }
         }
 
         bool Fight(string encounterId, RewardKind? reward)
@@ -215,13 +256,14 @@ public sealed class ActRollout
                 case "Boss":
                     foreach (string boss in bosses)
                         if (!Fight(boss, null)) return Result(false);
+                    Probe();
                     return Result(true);
             }
         }
         // Ran out of map without meeting a boss node (shouldn't happen): count it as reaching the end.
         return Result(true);
 
-        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log);
+        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins);
 
         int Real(int scaled) => (int)Math.Round(scaled / PlayerHpScale);
     }
