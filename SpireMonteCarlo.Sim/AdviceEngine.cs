@@ -76,6 +76,8 @@ public sealed class AdviceReport
     public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
     public required IReadOnlyList<OptionReport> Options { get; init; }
     public int Rollouts { get; init; }
+    /// <summary>There was only one option, so nothing was simulated.</summary>
+    public bool OnlyOption { get; init; }
     public bool ExactPlan { get; init; }
     public int ApproximateCards { get; init; }
     public int UnmodelledFights { get; init; }
@@ -103,8 +105,10 @@ public static class AdviceEngine
     private const double Act3WinRate = 0.84, Act1DeckStrength = 0.50, Act2DeckStrength = 0.70, Act2HpShare = 0.9;
 
     // A card's worth later in the run, from real players' ratings: across 82 Ironclad cards in the A10 bracket each +100 Codex Elo goes
-    // with +3.1 points of run win rate (r = 0.61). Part of that is stronger players picking better cards, so half of it is counted, against
-    // the Elo of skipping at the deck's size (the reward policy's own skip rule), and only for the share of the run after the current act.
+    // with +3.1 points of run win rate (r = 0.61). Part of that is stronger players picking better cards, so half of it is counted, measured
+    // from the average Ironclad card (the regression's centre), and only for the share of the run after the current act. (It was first
+    // measured from the reward policy's Elo of skipping, which rises with deck size to ~1700 at 20 cards, so nearly every card looked worse
+    // than Skip later in the run and Skip won most late-act rewards.)
     public const double LongTermPointsPerElo = 0.0157;
 
     private static double Logistic(double x) => 1 / (1 + Math.Exp(-x));
@@ -144,11 +148,11 @@ public static class AdviceEngine
     {
         RewardPool pool = data.PoolFor(snapshot.Run.Character);
         var had = snapshot.Deck.GroupBy(c => c.Id).ToDictionary(g => g.Key, g => g.Count());
-        double skip = PickPolicy.SkipElo(snapshot.Deck.Count), total = 0;
+        double average = RewardPool.DefaultElo, total = 0;
         foreach (CardDef c in optionDeck)
         {
             if (had.TryGetValue(c.Id, out int left) && left > 0) { had[c.Id] = left - 1; continue; }
-            if (pool.HasElo(c.Id)) total += LongTermPointsPerElo * (pool.Elo(c.Id) - skip);
+            if (pool.HasElo(c.Id)) total += LongTermPointsPerElo * (pool.Elo(c.Id) - average);
         }
         return total * ShareAfterThisAct(snapshot.Run);
     }
@@ -171,6 +175,13 @@ public static class AdviceEngine
     /// </summary>
     public static AdviceReport Evaluate(SimData data, RunSnapshot snapshot, ActRollout rollout, IReadOnlyList<DecisionOption> options, int rollouts, ulong seed, IReadOnlyList<string>? notes = null)
     {
+        // Nothing to compare (a map node with one way on): say so instead of simulating.
+        if (options.Count == 1)
+            return new AdviceReport
+            {
+                Decision = snapshot.Decision, BaselineLabel = options[0].Label, Rollouts = 0, OnlyOption = true, Notes = notes ?? Array.Empty<string>(),
+                Options = new[] { new OptionReport { Label = options[0].Label, CardId = options[0].CardId, IsBaseline = true } },
+            };
         var results = new RolloutResult[options.Count][];
         for (int j = 0; j < options.Count; j++) results[j] = new RolloutResult[rollouts];
 

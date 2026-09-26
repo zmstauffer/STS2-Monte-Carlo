@@ -196,10 +196,11 @@ public static class FightSimulator
             {
                 if (combat.Result != CombatResult.Ongoing || actions >= MaxActionsPerTurn) return;
                 if (trace != null) trace(Describe(combat, action));
+                int exhaustedBefore = combat.ExhaustPile.Count;
                 if (!BasicBot.Apply(combat, action)) break;
                 actions++;
                 if (trace != null && combat.Result == CombatResult.Ongoing)
-                    trace($"      (energy {combat.Energy}, block {combat.Block}, enemies: {string.Join(", ", combat.Enemies.Select(e => e.Alive ? $"{e.Hp}hp/{e.Block}b" : "dead"))})");
+                    trace($"      (energy {combat.Energy}, block {combat.Block}, enemies: {string.Join(", ", combat.Enemies.Select(e => e.Alive ? $"{e.Hp}hp/{e.Block}b" : "dead"))}){(combat.ExhaustPile.Count > exhaustedBefore ? $" exhausted {string.Join(", ", combat.ExhaustPile.Skip(exhaustedBefore))}" : "")}");
                 // A card we didn't know about is in hand now (drawn or generated): the rest of the plan is stale.
                 if (combat.Hand.Any(c => c.Tag == 0)) break;
             }

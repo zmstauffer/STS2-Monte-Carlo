@@ -32,7 +32,7 @@ public static class AdviceFormatter
     {
         OptionReport best = report.Options[0];
         List<OptionReport> ties = Ties(report);
-        if (report.Options.Count == 1) return best.Label;
+        if (report.Options.Count == 1) return $"Only one option: {Readable(best.Label)}.";
         if (ties.Count == report.Options.Count - 1)
             return $"No real difference: every option is within the noise of the others (best by a hair: {Readable(best.Label)}). Pick whichever you prefer.";
         if (ties.Count > 0)
@@ -48,6 +48,11 @@ public static class AdviceFormatter
             sb.AppendLine($"Note: the simulator has only been built and checked for Ironclad; results for {snapshot.Run.Character} are rough.");
         sb.AppendLine(source);
         sb.AppendLine($"{snapshot.Run.Character} A{snapshot.Run.Ascension}, act {snapshot.Run.Act} floor {snapshot.Run.TotalFloor}, HP {snapshot.Run.CurrentHp}/{snapshot.Run.MaxHp}, deck {snapshot.Deck.Count} cards, {snapshot.Run.Gold} gold");
+        if (report.OnlyOption)
+        {
+            sb.AppendLine($"Suggestion: {Suggestion(report)}");
+            return sb.ToString();
+        }
         bool test = report.Options.Any(o => !double.IsNaN(o.ProbeHpLost));
         sb.AppendLine($"{rollouts} simulated futures per option ({seconds:F1}s), to the end of act {snapshot.Run.Act}{(test ? ", then a deck test (3 Act 2 elites and a boss, each from full HP)" : "")}.");
         sb.AppendLine(report.ExactPlan ? "Using this run's actual upcoming encounters." : "This snapshot has no encounter plan, so upcoming fights are sampled (less precise).");

@@ -572,10 +572,13 @@ internal static class CardChoices
         foreach (Effect e in card.Effects)
         {
             int hits = Math.Max(1, e.Hits);
+            // Amounts that grow with something ("+3 per Strike card") count at a typical value, or Perfected Strike+ looked like a plain
+            // Strike and Burning Pact exhausted it.
+            double amount = e.Amount + e.Per * TypicalSource(e.AmountSource);
             v += e.Op switch
             {
-                EffectOp.Damage or EffectOp.DamageAll or EffectOp.DamageRandom => (e.Amount + card.BonusDamage) * hits * 0.3,
-                EffectOp.Block => e.Amount * 0.3,
+                EffectOp.Damage or EffectOp.DamageAll or EffectOp.DamageRandom => (amount + card.BonusDamage) * hits * 0.3,
+                EffectOp.Block => amount * 0.3,
                 EffectOp.Draw => e.Amount * 3,
                 EffectOp.Energy => e.Amount * 4,
                 EffectOp.BuffSelf => e.Power == PowerKind.Strength ? e.Amount * 4 : 6,
@@ -586,6 +589,19 @@ internal static class CardChoices
         if (card.Kind == CardKind.Power) v += 3;
         return v - 0.4 * Math.Max(0, card.Cost);
     }
+
+    /// <summary>A typical value of a scaling source, for judging a card outside a fight.</summary>
+    private static double TypicalSource(Source source) => source switch
+    {
+        Source.None => 0,
+        Source.StrikeCards => 5,
+        Source.X => 3,
+        Source.Strength => 1,
+        Source.DrawPileCount or Source.DiscardPileCount => 6,
+        Source.CardsPlayedInCombat => 8,
+        Source.ExhaustPileCount => 2,
+        _ => 1,
+    };
 
     public static CardDef? WorstToExhaust(IReadOnlyList<CardDef> hand)
     {

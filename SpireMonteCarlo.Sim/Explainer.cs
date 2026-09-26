@@ -12,6 +12,7 @@ public static class Explainer
     public static IReadOnlyList<string> Explain(AdviceReport report)
     {
         var lines = new List<string>();
+        if (report.OnlyOption) return lines;
         OptionReport baseline = report.Options.First(o => o.IsBaseline);
         OptionReport best = report.Options[0];
 

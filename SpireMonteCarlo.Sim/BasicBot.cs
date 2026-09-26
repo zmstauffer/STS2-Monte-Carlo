@@ -277,7 +277,15 @@ public sealed class BasicBot
         double draws = Math.Clamp(enemyHpLeft / dpt, 0, 10) * Math.Min(1.0, 5.0 / deck.Count);
         double replaced = Math.Clamp((deck.Count - 5) / 5.0, 0, 1);
         double loss = 0;
-        for (int i = root.ExhaustPile.Count; i < state.ExhaustPile.Count; i++) loss += (PlayWorth(state.ExhaustPile[i]) - replaced * mean) * draws;
+        for (int i = root.ExhaustPile.Count; i < state.ExhaustPile.Count; i++)
+        {
+            CardDef card = state.ExhaustPile[i];
+            // Thinning a playable card out gains little (a hand already holds more cards than energy; an unplayable card costs only ~1.5
+            // HP per draw by sim cardvalue), so only exhausting a better-than-average card counts, as a loss. A status or curse gains
+            // that ~1.5 per draw it would have clogged.
+            if (card.Kind is CardKind.Status or CardKind.Curse || card.Cost == CardDef.Unplayable) loss -= JunkDrawCost * draws;
+            else loss += Math.Max(0, PlayWorth(card) - replaced * mean) * draws;
+        }
         return loss;
     }
 
@@ -326,6 +334,9 @@ public sealed class BasicBot
         }
         return n == 0 ? BenchEnergyWorth : total / n;
     }
+
+    /// <summary>What drawing an unplayable card costs in a fight, in HP (Injury in <c>sim cardvalue</c>: 3-5 HP a fight over ~3 draws).</summary>
+    private const double JunkDrawCost = 1.5;
 
     /// <summary>A card's worth per draw in rough HP (a point of damage or block is about one): 0 for statuses, curses and unplayable cards.</summary>
     private static double PlayWorth(CardDef card) =>
