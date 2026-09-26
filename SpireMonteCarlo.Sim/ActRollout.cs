@@ -97,7 +97,7 @@ public sealed class ActRollout
             if (lineup.Any(m => !_data.Monsters.Contains(m))) { unmodelled++; return true; }
 
             int hpBefore = hp;
-            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts);
+            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services);
             log.Add(new FightLogEntry(encounterId, Real(hpBefore), result.Won ? Real(result.HpAfter) : 0, deck.Count));
             if (!result.Won) { diedTo = encounterId; hp = 0; return false; }
 

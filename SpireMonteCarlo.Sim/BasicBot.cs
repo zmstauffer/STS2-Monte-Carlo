@@ -48,7 +48,7 @@ public sealed class BasicBot
         bool single = card.Effects.Any(e => e.Op is EffectOp.Damage or EffectOp.DebuffEnemy or EffectOp.DamageEqualBlock);
         if (!single) { yield return -1; yield break; }
         foreach (Enemy e in combat.Enemies)
-            if (e.Alive) yield return e.Index;
+            if (e.Alive && !e.Dying) yield return e.Index;
     }
 
     private double Score(Combat combat, CardDef card, int handIndex, int target, int needBlock, bool lethalDanger, int energyAfter)
@@ -69,11 +69,11 @@ public sealed class BasicBot
                     break;
                 case EffectOp.DamageAll:
                     foreach (Enemy e in combat.Enemies)
-                        if (e.Alive) score += DamageValue(combat, e, effect.Amount, hits);
+                        if (e.Alive && !e.Dying) score += DamageValue(combat, e, effect.Amount, hits);
                     break;
                 case EffectOp.DamageRandom:
                     {
-                        var alive = combat.Enemies.Where(e => e.Alive).ToList();
+                        var alive = combat.Enemies.Where(e => e.Alive && !e.Dying).ToList();
                         foreach (Enemy e in alive) score += DamageValue(combat, e, effect.Amount, hits) / alive.Count;
                         break;
                     }
@@ -101,7 +101,7 @@ public sealed class BasicBot
                     break;
                 case EffectOp.DebuffAll:
                     foreach (Enemy e in combat.Enemies)
-                        if (e.Alive) score += DebuffValue(combat, e, effect, handIndex);
+                        if (e.Alive && !e.Dying) score += DebuffValue(combat, e, effect, handIndex);
                     break;
                 case EffectOp.DebuffSelf:
                     score -= effect.Amount * 2;
@@ -118,25 +118,49 @@ public sealed class BasicBot
             }
         }
 
+        // Getting a Beckon/Toxic-style status card out of the hand avoids what it would cost at the end of the turn.
+        score += card.EndTurnHpLoss + 0.7 * card.EndTurnDamage;
+
         if (card.Exhaust && card.Kind != CardKind.Power) score -= 1.5;
         if (card.Approximate && score < 1) score = 1;
         return score;
+    }
+
+    /// <summary>HP an enemy would actually lose from these hits, given its block and defensive powers.</summary>
+    private static int HpLoss(Enemy enemy, int perHit, int hits)
+    {
+        int block = enemy.Block, lost = 0;
+        int slippery = enemy.Powers[(int)PowerKind.Slippery];
+        int shellLeft = enemy.Powers[(int)PowerKind.HardenedShell] > 0 ? enemy.Powers[(int)PowerKind.HardenedShell] - enemy.ShellDamage : int.MaxValue;
+        bool intangible = enemy.Powers[(int)PowerKind.Intangible] > 0;
+        for (int h = 0; h < hits; h++)
+        {
+            int d = intangible ? Math.Min(perHit, 1) : perHit;
+            int absorbed = Math.Min(block, d);
+            block -= absorbed;
+            int through = d - absorbed;
+            if (through > 0 && slippery > 0) { through = 1; slippery--; }
+            through = Math.Max(0, Math.Min(through, shellLeft));
+            shellLeft -= through;
+            lost += through;
+        }
+        return lost;
     }
 
     private static double DamageValue(Combat combat, Enemy enemy, int baseDamage, int hits)
     {
         int perHit = combat.PlayerAttackDamage(baseDamage, enemy);
         int total = perHit * hits;
-        int throughBlock = Math.Max(0, total - enemy.Block);
-        int hpDamage = Math.Min(throughBlock, enemy.Hp);
-        double value = hpDamage + Math.Min(total, enemy.Block) * 0.3;
+        int hpDamage = Math.Min(HpLoss(enemy, perHit, hits), enemy.Hp);
+        double value = hpDamage + Math.Min(total - hpDamage, enemy.Block) * 0.3;
 
-        double threat = 3;
-        if (enemy.Move is { IsAttack: true } move)
-            threat += move.Hits * combat.EnemyAttackDamage(move.DamagePerHit(combat.DeadlyEnemies), enemy);
+        double threat = 3 + combat.IntentDamage(enemy);
         // Damage that finishes an enemy also removes everything it would have done later.
         if (hpDamage >= enemy.Hp) value += 4 + threat;
         else value += threat * hpDamage / enemy.Hp * 0.5;
+
+        // Minions don't end the fight; don't spend the turn on them while a real enemy is still up.
+        if (!enemy.Primary && combat.Enemies.Any(e => e.Alive && e.Primary)) value *= 0.6;
         return value;
     }
 
@@ -162,7 +186,7 @@ public sealed class BasicBot
                 }
             case PowerKind.Weak when enemy.Powers[(int)PowerKind.Weak] == 0:
                 {
-                    double incoming = enemy.Move is { IsAttack: true } m ? m.Hits * combat.EnemyAttackDamage(m.DamagePerHit(combat.DeadlyEnemies), enemy) : 0;
+                    double incoming = combat.IntentDamage(enemy);
                     return incoming * 0.25 * turns + 0.5;
                 }
             case PowerKind.Poison:

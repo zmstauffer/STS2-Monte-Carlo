@@ -15,6 +15,8 @@ public sealed class CardLibrary
         @"Fatal|for each|equal to|random|Whenever|At the (start|end)|Choose|Discover|Transform|Upgrade|Exhaust (a|your|all|the)|Copy|Double|Play the|Put |Add |from your (discard|exhaust|draw)|next turn|this combat|this turn|cannot|Retain|Innate|if |If |Shuffle|Heal|Max HP",
         RegexOptions.Compiled);
 
+    private static readonly Regex EndOfTurnInHand = new(@"At the end of your turn, if this is in your (\[gold\])?Hand", RegexOptions.Compiled);
+
     private readonly IReadOnlyDictionary<string, CodexCard> _codex;
     private readonly Dictionary<(string, bool), CardDef> _cache = new();
     private readonly HashSet<string> _unknown = new();
@@ -92,6 +94,15 @@ public sealed class CardLibrary
         bool targetsEnemies = target is "AnyEnemy" or "AllEnemies" or "RandomEnemy";
         var effects = new List<Effect>();
 
+        // Status cards like Burn and Infection: the number is what they cost you at the end of the turn, not an attack.
+        int endTurnDamage = 0, endTurnHpLoss = 0;
+        bool endOfTurnCard = card.DescriptionRaw != null && EndOfTurnInHand.IsMatch(card.DescriptionRaw);
+        if (endOfTurnCard)
+        {
+            if (damage is > 0) { endTurnDamage = damage.Value; damage = null; }
+            if (hpLoss is > 0) { endTurnHpLoss = hpLoss.Value; hpLoss = null; }
+        }
+
         if (hpLoss is > 0) effects.Add(new Effect(EffectOp.LoseHp, hpLoss.Value));
         if (damage is > 0)
         {
@@ -115,10 +126,12 @@ public sealed class CardLibrary
         if (energy is > 0) effects.Add(new Effect(EffectOp.Energy, energy.Value));
         if (draw is > 0) effects.Add(new Effect(EffectOp.Draw, draw.Value));
 
-        if (card.DescriptionRaw != null && ComplexText.IsMatch(card.DescriptionRaw)) approximate = true;
+        if (card.DescriptionRaw != null && ComplexText.IsMatch(card.DescriptionRaw) && !endOfTurnCard) approximate = true;
 
         return Overrides.Apply(new CardDef
         {
+            EndTurnDamage = endTurnDamage,
+            EndTurnHpLoss = endTurnHpLoss,
             Id = card.Id,
             Upgraded = upgraded,
             Kind = kind,

@@ -172,3 +172,59 @@ public class MonsterAiExtractorTests
         Assert.Equal("THE_KIN_BOSS", DecompiledExtractor.ToSnakeCase("TheKinBoss"));
     }
 }
+
+public class MonsterCardAddTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "smc-ai-" + Guid.NewGuid().ToString("N"));
+
+    public MonsterCardAddTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() => Directory.Delete(_dir, recursive: true);
+
+    /// <summary>Synthetic source in the shape of a decompiled monster class.</summary>
+    private const string Source = """
+        public sealed class TestGhost : MonsterModel
+        {
+        	private int HauntDazed => AscensionHelper.GetValueIfAscension(AscensionLevel.DeadlyEnemies, 7, 5);
+
+        	protected override MonsterMoveStateMachine GenerateMoveStateMachine()
+        	{
+        		MoveState moveState = new MoveState("HAUNT_MOVE", HauntMove, new DebuffIntent());
+        		MoveState moveState2 = new MoveState("SLASH_MOVE", SlashMove, new SingleAttackIntent(5));
+        		moveState.FollowUpState = moveState2;
+        		moveState2.FollowUpState = moveState;
+        		return new MonsterMoveStateMachine(list, moveState);
+        	}
+
+        	private async Task HauntMove(IReadOnlyList<Creature> targets)
+        	{
+        		await CardPileCmd.AddToCombatAndPreview<Dazed>(targets, PileType.Discard, HauntDazed, null);
+        		await CardPileCmd.AddToCombatAndPreview<Wound>(targets, PileType.Draw, 2, null);
+        	}
+
+        	private async Task SlashMove(IReadOnlyList<Creature> targets)
+        	{
+        	}
+        }
+        """;
+
+    [Fact]
+    public void FindsStatusCardsIncludingAscensionDependentCounts()
+    {
+        File.WriteAllText(Path.Combine(_dir, "TestGhost.cs"), Source);
+        var machines = MonsterAiExtractor.ExtractAll(_dir);
+
+        ExtractedState haunt = machines["TEST_GHOST"].States.Single(s => s.Id == "HAUNT_MOVE");
+        Assert.Equal("HauntMove", haunt.Method);
+        Assert.Equal(2, haunt.Adds.Count);
+
+        ExtractedCardAdd dazed = haunt.Adds[0];
+        Assert.Equal("DAZED", dazed.Card);
+        Assert.Equal("Discard", dazed.Pile);
+        Assert.Equal(5, dazed.Count);           // base value
+        Assert.Equal(7, dazed.CountAlt);        // at Deadly Enemies
+        Assert.Equal(9, dazed.AltAscension);
+
+        Assert.Equal(("WOUND", "Draw", 2), (haunt.Adds[1].Card, haunt.Adds[1].Pile, haunt.Adds[1].Count));
+        Assert.Empty(machines["TEST_GHOST"].States.Single(s => s.Id == "SLASH_MOVE").Adds);
+    }
+}

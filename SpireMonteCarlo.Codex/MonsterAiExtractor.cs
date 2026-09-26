@@ -23,6 +23,25 @@ public sealed class ExtractedState
     public string? MoveId { get; set; }
     public string? Next { get; set; }
     public List<ExtractedBranch> Branches { get; set; } = new();
+
+    /// <summary>The C# method that performs this move (used to find what else the move does).</summary>
+    public string? Method { get; set; }
+
+    /// <summary>Status cards this move puts into the player's piles.</summary>
+    public List<ExtractedCardAdd> Adds { get; set; } = new();
+}
+
+public sealed class ExtractedCardAdd
+{
+    /// <summary>UPPER_SNAKE_CASE card id, e.g. WOUND.</summary>
+    public string Card { get; set; } = "";
+    /// <summary>Discard, Draw, or Hand.</summary>
+    public string Pile { get; set; } = "Discard";
+    /// <summary>Count at the base difficulty.</summary>
+    public int Count { get; set; } = 1;
+    /// <summary>Count once <see cref="AltAscension"/> is reached (0 when the count doesn't change).</summary>
+    public int CountAlt { get; set; }
+    public int AltAscension { get; set; }
 }
 
 public sealed class ExtractedMachine
@@ -47,7 +66,7 @@ public sealed class ExtractedMachine
 /// <summary>Reads each monster's move state machine out of its decompiled class (Codex leaves out links and weights).</summary>
 public static class MonsterAiExtractor
 {
-    private static readonly Regex NewState = new(@"new\s+(?<kind>MoveState|RandomBranchState|ConditionalBranchState)\(\s*""(?<id>[A-Za-z0-9_]+)""", RegexOptions.Compiled);
+    private static readonly Regex NewState = new(@"new\s+(?<kind>MoveState|RandomBranchState|ConditionalBranchState)\(\s*""(?<id>[A-Za-z0-9_]+)""(?:\s*,\s*(?<method>\w+))?", RegexOptions.Compiled);
     private static readonly Regex InitializerFollowUp = new(@"\{\s*FollowUpState\s*=\s*(?<to>\w+)\s*\}", RegexOptions.Compiled);
     private static readonly Regex Assigned = new(@"^\s*(?:(?:MoveState|RandomBranchState|ConditionalBranchState)\s+)?(?<v>\w+)\s*=", RegexOptions.Compiled);
     private static readonly Regex InlineFollowUp = new(@"(?<prev>\w+)\.FollowUpState\s*=", RegexOptions.Compiled);
@@ -67,12 +86,66 @@ public static class MonsterAiExtractor
         var result = new Dictionary<string, ExtractedMachine>();
         foreach (string file in Directory.GetFiles(monstersDir, "*.cs"))
         {
-            string? body = DecompiledExtractor.MethodBody(File.ReadAllText(file), "GenerateMoveStateMachine()");
+            string text = File.ReadAllText(file);
+            string? body = DecompiledExtractor.MethodBody(text, "GenerateMoveStateMachine()");
             if (body == null) continue;
             ExtractedMachine? machine = Parse(body);
-            if (machine != null) result[DecompiledExtractor.ToSnakeCase(Path.GetFileNameWithoutExtension(file))] = machine;
+            if (machine == null) continue;
+            AttachCardAdds(text, machine);
+            result[DecompiledExtractor.ToSnakeCase(Path.GetFileNameWithoutExtension(file))] = machine;
         }
         return result;
+    }
+
+    private static readonly Regex AddToCombat = new(@"AddToCombatAndPreview<(?<card>\w+)>\(\s*\w+\s*,\s*PileType\.(?<pile>\w+)\s*,\s*(?<count>\w+)", RegexOptions.Compiled);
+    private static readonly Regex AddGenerated = new(@"AddGeneratedCardToCombat\(\s*\w+\s*,\s*PileType\.(?<pile>\w+)", RegexOptions.Compiled);
+    private static readonly Regex CreateCard = new(@"CreateCard<(?<card>\w+)>", RegexOptions.Compiled);
+    private static readonly Regex AscensionValue = new(@"GetValueIfAscension\(\s*AscensionLevel\.(?<level>\w+)\s*,\s*(?<a>\d+)\s*,\s*(?<b>\d+)\s*\)", RegexOptions.Compiled);
+
+    private static readonly Dictionary<string, int> AscensionLevels = new()
+    {
+        ["SwarmingElites"] = 1, ["WearyTraveler"] = 2, ["Poverty"] = 3, ["TightBelt"] = 4, ["AscendersBane"] = 5,
+        ["Inflation"] = 6, ["Scarcity"] = 7, ["ToughEnemies"] = 8, ["DeadlyEnemies"] = 9, ["DoubleBoss"] = 10,
+    };
+
+    /// <summary>Finds, for each move, the status cards its method hands to the player.</summary>
+    private static void AttachCardAdds(string fileText, ExtractedMachine machine)
+    {
+        foreach (ExtractedState state in machine.States.Where(s => s.Method != null))
+        {
+            string? body = DecompiledExtractor.MethodBody(fileText, $"Task {state.Method}(");
+            if (body == null) continue;
+
+            foreach (Match m in AddToCombat.Matches(body))
+            {
+                var add = new ExtractedCardAdd { Card = DecompiledExtractor.ToSnakeCase(m.Groups["card"].Value), Pile = m.Groups["pile"].Value };
+                ResolveCount(fileText, m.Groups["count"].Value, add);
+                state.Adds.Add(add);
+            }
+
+            // Cards created one at a time (Soul Fysh's Beckon): one add per AddGeneratedCardToCombat call.
+            Match created = CreateCard.Match(body);
+            if (created.Success)
+                foreach (Match g in AddGenerated.Matches(body))
+                    state.Adds.Add(new ExtractedCardAdd { Card = DecompiledExtractor.ToSnakeCase(created.Groups["card"].Value), Pile = g.Groups["pile"].Value, Count = 1 });
+        }
+    }
+
+    /// <summary>A count is either a literal or the name of a property like "private int HauntDazed => 5;" (possibly ascension-dependent).</summary>
+    private static void ResolveCount(string fileText, string token, ExtractedCardAdd add)
+    {
+        if (int.TryParse(token, out int literal)) { add.Count = literal; return; }
+        Match property = Regex.Match(fileText, @"\b" + Regex.Escape(token) + @"\s*=>\s*(?<expr>[^;]+);");
+        if (!property.Success) return;
+        string expr = property.Groups["expr"].Value;
+        Match ascension = AscensionValue.Match(expr);
+        if (ascension.Success)
+        {
+            add.Count = int.Parse(ascension.Groups["b"].Value);
+            add.CountAlt = int.Parse(ascension.Groups["a"].Value);
+            add.AltAscension = AscensionLevels.GetValueOrDefault(ascension.Groups["level"].Value);
+        }
+        else if (int.TryParse(expr.Trim(), out int plain)) add.Count = plain;
     }
 
     /// <summary>Index of the ')' closing a call whose '(' and first argument have already been consumed (depth 1 at <paramref name="from"/>).</summary>
@@ -101,6 +174,7 @@ public static class MonsterAiExtractor
                 Id = id,
                 Kind = kind == "MoveState" ? "move" : kind == "RandomBranchState" ? "random" : "conditional",
                 MoveId = kind == "MoveState" ? MoveIdFromStateId(id) : null,
+                Method = kind == "MoveState" && m.Groups["method"].Success ? m.Groups["method"].Value : null,
             };
 
             // The statement so far can name the variable being assigned and any states whose follow-up this one is

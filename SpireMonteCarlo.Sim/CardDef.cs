@@ -38,6 +38,12 @@ public sealed class CardDef
     public bool Retain { get; init; }
     public Effect[] Effects { get; init; } = Array.Empty<Effect>();
 
+    /// <summary>Damage taken at the end of the turn if this card is still in hand (Burn, Infection, ...); blockable.</summary>
+    public int EndTurnDamage { get; init; }
+
+    /// <summary>HP lost (not blockable) at the end of the turn if this card is still in hand (Beckon).</summary>
+    public int EndTurnHpLoss { get; init; }
+
     /// <summary>
     /// True when the card text has behavior the effect list doesn't capture (conditions, triggered powers,
     /// card generation, ...). The card still plays, but only with its straightforward effects.

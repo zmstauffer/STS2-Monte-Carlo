@@ -6,10 +6,10 @@ public static class FightSimulator
 {
     /// <summary>Plays one whole combat with the bot and reports how it went. <paramref name="trace"/> receives a readable play-by-play.</summary>
     public static FightResult Run(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters,
-        int ascension, ulong seed, BasicBot? bot = null, Action<string>? trace = null, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0)
+        int ascension, ulong seed, BasicBot? bot = null, Action<string>? trace = null, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, CombatServices? services = null)
     {
         bot ??= new BasicBot();
-        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale);
+        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale, services: services);
         while (combat.Result == CombatResult.Ongoing)
         {
             if (trace != null) TraceTurnStart(combat, trace);
@@ -37,7 +37,8 @@ public static class FightSimulator
         {
             if (!e.Alive) continue;
             string powers = string.Join(" ", Enum.GetValues<PowerKind>().Where(p => e.Powers[(int)p] != 0).Select(p => $"{p}{e.Powers[(int)p]}"));
-            string move = e.Move == null ? "no move" : $"{e.Move.Id}{(e.Move.IsAttack ? $" {e.Move.Hits}x{c.EnemyAttackDamage(e.Move.DamagePerHit(c.DeadlyEnemies), e)}" : "")}{(e.Move.Block > 0 ? $" +{e.Move.Block}blk" : "")}";
+            string move = e.Stunned ? "STUNNED" : e.Move == null ? "no move"
+                : $"{e.Move.Id}{(c.IntendsAttack(e) ? $" {(e.Move.Id == "EXPLODE" ? 1 : e.Move.Hits)}x{c.EnemyAttackDamage(c.MoveBaseDamage(e), e)}" : "")}{(e.Move.Block > 0 ? $" +{e.Move.Block}blk" : "")}{(e.Move.Adds.Length > 0 ? $" +{string.Join("/", e.Move.Adds.Select(a => $"{a.CountAt(c.Ascension)} {a.CardId}"))}" : "")}";
             trace($"    {e.Def.Id}#{e.Index} {e.Hp}/{e.MaxHp}hp {e.Block}b [{powers}] intends {move}");
         }
     }

@@ -12,6 +12,9 @@ public sealed class SimData
     public EncounterLibrary Encounters { get; }
     public IReadOnlyDictionary<string, CodexCharacter> Characters { get; }
 
+    /// <summary>What a combat needs to hand out status cards and spawn monsters mid-fight.</summary>
+    public CombatServices Services { get; }
+
     private readonly IReadOnlyDictionary<string, CodexCard> _codexCards;
     private readonly IReadOnlyDictionary<string, CodexMetricRow> _cardMetrics;
     private readonly Dictionary<string, RewardPool> _pools = new(StringComparer.OrdinalIgnoreCase);
@@ -24,6 +27,9 @@ public sealed class SimData
         Encounters = new EncounterLibrary(cache.LoadEncounters(), cache.LoadEncounterLineups());
         Characters = cache.LoadCharacters();
         _cardMetrics = cache.LoadMetrics("cards", EloBracket);
+        Services = new CombatServices(
+            id => _codexCards.ContainsKey(id) ? Cards.Get(id, false) : null,
+            id => Monsters.Contains(id) ? Monsters.Get(id) : null);
     }
 
     /// <summary>The cards a character can be offered as rewards, with their Elo.</summary>

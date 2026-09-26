@@ -16,6 +16,7 @@ public static class SimCommands
             case "fight": return Fight(args.Skip(1).ToArray());
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
             case "calibrate-run": return CalibrateRun(args.Skip(1).ToArray());
+            case "rewards": return Rewards(args.Skip(1).ToArray());
             case "encounters": return ListEncounters(args.Skip(1).ToArray());
             default:
                 Console.Error.WriteLine("Usage: advisor sim <extract [--decompiled <dir>] | encounters [act] | fight --encounter <ID> [--n N] [--ascension A] [--hp N] [--deck SPEC] [--seed S]>");
@@ -121,7 +122,7 @@ public static class SimCommands
             {
                 ulong seed = SimRng.Mix(7, (ulong)i);
                 string[] lineup = e.Generate(new SimRng(SimRng.Mix(seed, 1)));
-                results[i] = FightSimulator.Run(deck, ironclad.StartingHp, ironclad.StartingHp, lineup.Select(data.Monsters.Get), ascension, seed, altStarts: e.AltStarts);
+                results[i] = FightSimulator.Run(deck, ironclad.StartingHp, ironclad.StartingHp, lineup.Select(data.Monsters.Get), ascension, seed, altStarts: e.AltStarts, services: data.Services);
             });
             rows.Add((e, results.Average(r => r.HpLost), results.Count(r => r.Won) / (double)n, results.Average(r => r.Turns),
                 real.AvgDamage, real.Fatal / (double)real.Total, real.AvgTurns, real.Total));
@@ -205,6 +206,37 @@ public static class SimCommands
         return 0;
     }
 
+    /// <summary>What the default reward policy picks, and how much of it the engine models properly.</summary>
+    private static int Rewards(string[] args)
+    {
+        SimData? data = Load();
+        if (data == null) return 1;
+        int n = int.Parse(Option(args, "--n") ?? "20000");
+        RewardPool pool = data.PoolFor("ironclad");
+        var picks = new Dictionary<string, int>();
+        int skipped = 0;
+        var rng = new SimRng(11);
+        var odds = new RarityOdds(10);
+        for (int i = 0; i < n; i++)
+        {
+            string[] offer = pool.GenerateOffer(RewardKind.Normal, odds, rng);
+            int pick = PickPolicy.Choose(offer, pool, deckSize: 10 + i % 8, rng);
+            if (pick < 0) { skipped++; continue; }
+            picks[offer[pick]] = picks.GetValueOrDefault(offer[pick]) + 1;
+        }
+
+        int taken = picks.Values.Sum();
+        int approx = picks.Where(kv => data.Cards.Get(kv.Key, false).Approximate).Sum(kv => kv.Value);
+        Console.WriteLine($"{n} rewards: {100.0 * skipped / n:F1}% skipped; of the cards taken, {100.0 * approx / taken:F1}% are only approximately modelled");
+        Console.WriteLine($"{"card",-24} {"share",6}  approx  effects");
+        foreach (var (id, count) in picks.OrderByDescending(kv => kv.Value).Take(25))
+        {
+            CardDef def = data.Cards.Get(id, false);
+            Console.WriteLine($"{id,-24} {100.0 * count / taken,5:F1}%  {(def.Approximate ? "  yes " : "      ")}  {string.Join("; ", def.Effects.Select(e => $"{e.Op} {e.Amount}{(e.Hits != 1 ? $"x{e.Hits}" : "")}{(e.Power != PowerKind.Unsupported ? $" {e.Power}" : "")}"))}{(def.Effects.Length == 0 ? "(nothing)" : "")}");
+        }
+        return 0;
+    }
+
     private static double Spearman(double[] a, double[] b)
     {
         double[] ra = Ranks(a), rb = Ranks(b);
@@ -259,7 +291,7 @@ public static class SimCommands
             ulong traceSeed = SimRng.Mix(seed, 0);
             string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
             Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
-            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts);
+            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services);
             return 0;
         }
 
@@ -271,7 +303,7 @@ public static class SimCommands
             ulong fightSeed = SimRng.Mix(seed, (ulong)i);
             string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
             monsterIds[i] = lineup;
-            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts);
+            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services);
         });
         sw.Stop();
 

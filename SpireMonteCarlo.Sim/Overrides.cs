@@ -25,6 +25,8 @@ internal static class Overrides
         Innate = card.Innate,
         Retain = card.Retain,
         Effects = effects,
+        EndTurnDamage = card.EndTurnDamage,
+        EndTurnHpLoss = card.EndTurnHpLoss,
         Approximate = approximate,
     };
 }

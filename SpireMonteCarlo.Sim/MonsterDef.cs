@@ -4,7 +4,16 @@ namespace SpireMonteCarlo.Sim;
 
 public readonly record struct MovePower(PowerKind Power, bool OnPlayer, int Amount);
 
-public sealed class MoveDef
+public enum AddPile { Discard, Draw, Hand }
+
+/// <summary>A move that puts status cards into the player's piles (Wounds, Dazed, Slimed, ...).</summary>
+public sealed record CardAdd(string CardId, AddPile Pile, int Count, int CountAlt = 0, int AltAscension = 0)
+{
+    /// <summary>How many cards at this ascension (the game raises some counts at Deadly/Tough Enemies).</summary>
+    public int CountAt(int ascension) => AltAscension > 0 && ascension >= AltAscension ? CountAlt : Count;
+}
+
+public sealed record MoveDef
 {
     public required string Id { get; init; }
     public string Intent { get; init; } = "";
@@ -14,6 +23,7 @@ public sealed class MoveDef
     public int Hits { get; init; } = 1;
     public int Block { get; init; }
     public MovePower[] Powers { get; init; } = Array.Empty<MovePower>();
+    public CardAdd[] Adds { get; init; } = Array.Empty<CardAdd>();
 
     public bool IsAttack => Damage > 0 || DamageDeadly > 0;
     public int DamagePerHit(bool deadly) => deadly ? DamageDeadly : Damage;
@@ -148,6 +158,12 @@ public sealed class MonsterLibrary
                     Condition = b.Condition,
                 }).ToArray(),
             });
+            // Status cards a move hands out (Wounds, Dazed, ...) come from the game's move methods.
+            foreach (ExtractedState s in machine.States.Where(x => x.Adds.Count > 0 && x.MoveId != null && moves.ContainsKey(x.MoveId)))
+                moves[s.MoveId!] = moves[s.MoveId!] with
+                {
+                    Adds = s.Adds.Select(a => new CardAdd(a.Card, Enum.TryParse(a.Pile, out AddPile pile) ? pile : AddPile.Discard, a.Count, a.CountAlt, a.AltAscension)).ToArray(),
+                };
             movesResolved = states.Values.Where(s => s.Kind == StateKind.Move).All(s => s.MoveId != null && moves.ContainsKey(s.MoveId));
             starterSwitch = machine.StarterSwitch.ToArray();
             initial = machine.Initial ?? starterSwitch.FirstOrDefault() ?? "";
