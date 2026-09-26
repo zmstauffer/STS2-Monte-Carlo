@@ -49,7 +49,7 @@ public static class Explainer
 
         AddDeaths(parts, "boss", o.BossDeathRate, baseline.BossDeathRate);
         AddDeaths(parts, "elite", o.EliteDeathRate, baseline.EliteDeathRate);
-        AddDeaths(parts, "normal-fight", o.NormalDeathRate, baseline.NormalDeathRate);
+        AddDeaths(parts, "normal", o.NormalDeathRate, baseline.NormalDeathRate);
         AddHp(parts, "elite fights", o.EliteHpLost, baseline.EliteHpLost);
         AddHp(parts, "boss fights", o.BossHpLost, baseline.BossHpLost);
 
