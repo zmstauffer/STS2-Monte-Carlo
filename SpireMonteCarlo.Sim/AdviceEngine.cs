@@ -17,10 +17,29 @@ public sealed class OptionReport
     public double MeanHpEndIfSurvived { get; init; }
     public double MeanFightsWon { get; init; }
 
-    /// <summary>Share of next-act elites the end-of-act deck beats, over the runs that reach the end of the act; NaN when there is no probe (Act 3).</summary>
+    /// <summary>Share of the deck-test fights the end-of-act deck wins, over the runs that reach the end of the act; NaN when there is no test (Act 3).</summary>
     public double ProbeWinRate { get; init; } = double.NaN;
-    /// <summary>The single number options are ranked by: survival first, with HP left as a tiebreaker.</summary>
+    /// <summary>Average real HP the end-of-act deck loses per deck-test fight (a lost fight counts as all of it); NaN without a test.</summary>
+    public double ProbeHpLost { get; init; } = double.NaN;
+    /// <summary>The single number options are ranked by (see <see cref="AdviceEngine.ValueOf"/>).</summary>
     public double Value { get; init; }
+
+    /// <summary>Value compared with the best option on the same futures (0 for the best itself, negative for the rest) and its standard error.</summary>
+    public double DeltaVsBest { get; init; }
+    public double DeltaVsBestSe { get; init; }
+    /// <summary>What a surviving future is worth on average in this decision, so that value differences read as survival points.</summary>
+    public double PointScale { get; init; } = 1;
+    /// <summary>
+    /// The gap to the best option in points: 100 times the value gap over what a surviving future is worth, so an option that only
+    /// changes the chance of surviving the act by 10% is about 10 points; HP left and the deck test move it too.
+    /// </summary>
+    public double PointsVsBest => 100 * DeltaVsBest / PointScale;
+    public double PointsVsBestSe => 100 * DeltaVsBestSe / PointScale;
+    /// <summary>
+    /// The best option, or one whose gap to it is within about two standard errors (the simulations can't tell them apart) or under
+    /// <see cref="AdviceEngine.MeaningfulPoints"/> (a real difference, but too small to matter next to how far the model is from the game).
+    /// </summary>
+    public bool AboutEqualToBest => DeltaVsBest == 0 || -PointsVsBest <= Math.Max(2 * PointsVsBestSe, AdviceEngine.MeaningfulPoints);
 
     public double DeltaSurvival { get; init; }
     public double DeltaSurvivalSe { get; init; }
@@ -68,15 +87,23 @@ public sealed record DecisionOption(string Label, string? CardId, RolloutStart S
 
 public static class AdviceEngine
 {
+    /// <summary>How much the deck test counts next to surviving the act (which counts 1).</summary>
+    public const double DeckTestWeight = 1.0;
+
+    /// <summary>The smallest gap (in points) reported as a real difference between two options.</summary>
+    public const double MeaningfulPoints = 1.0;
+
     /// <summary>
-    /// Value of one rollout: surviving the act is what counts, then HP left, then how the end-of-act deck does against a few
-    /// next-act elites (which is where scaling cards pay off, and nearly everything survives Act 1).
+    /// Value of one rollout: surviving the act counts 1; then HP left at its end (up to 0.5 for full HP); then the deck test (up to
+    /// <see cref="DeckTestWeight"/> for a deck that loses no HP in its test fights). The deck test is where scaling cards pay off and what
+    /// still tells options apart late in an act, when nearly every future survives it. Reports show value differences times 100 as
+    /// "points": one point is worth about one percent more chance of getting through the act.
     /// </summary>
     public static double ValueOf(RolloutResult r)
     {
         if (!r.Survived) return 0.0;
         double value = 1.0 + 0.5 * r.HpEnd / r.MaxHp;
-        return r.ProbeFights > 0 ? value + 0.5 * r.ProbeWins / r.ProbeFights : value;
+        return r.ProbeFights > 0 ? value + DeckTestWeight * r.DeckStrength : value;
     }
 
     /// <summary>Compares taking each offered card against skipping, over many simulated futures of the act.</summary>
@@ -118,6 +145,10 @@ public static class AdviceEngine
         double[] skipSurvived = results[0].Select(r => r.Survived ? 1.0 : 0.0).ToArray();
         double[] skipHp = results[0].Select(r => (double)r.HpEnd).ToArray();
 
+        double[][] allValues = results.Select(rs => rs.Select(ValueOf).ToArray()).ToArray();
+        int bestIndex = Enumerable.Range(0, options.Count).MaxBy(j => allValues[j].Average());
+        double pointScale = allValues.SelectMany(v => v).Where(v => v > 0).DefaultIfEmpty(1.0).Average();
+
         var reports = new List<OptionReport>();
         for (int j = 0; j < options.Count; j++)
         {
@@ -128,6 +159,7 @@ public static class AdviceEngine
             (double dSurv, double dSurvSe) = PairedDifference(survived, skipSurvived);
             (double dHp, double dHpSe) = PairedDifference(hp, skipHp);
             (double dValue, double dValueSe) = PairedDifference(values, skipValues);
+            (double dBest, double dBestSe) = j == bestIndex ? (0.0, 0.0) : PairedDifference(values, allValues[bestIndex]);
             int survivors = rs.Count(r => r.Survived);
 
             reports.Add(new OptionReport
@@ -141,6 +173,8 @@ public static class AdviceEngine
                 MeanHpEndIfSurvived = survivors == 0 ? 0 : rs.Where(r => r.Survived).Average(r => r.HpEnd),
                 MeanFightsWon = rs.Average(r => r.FightsWon),
                 ProbeWinRate = rs.Where(r => r.Survived && r.ProbeFights > 0).Select(r => (double)r.ProbeWins / r.ProbeFights).DefaultIfEmpty(double.NaN).Average(),
+                ProbeHpLost = rs.Where(r => r.Survived && r.ProbeFights > 0).Select(r => (double)r.ProbeHpLost / r.ProbeFights).DefaultIfEmpty(double.NaN).Average(),
+                DeltaVsBest = dBest, DeltaVsBestSe = dBestSe, PointScale = pointScale,
                 Value = values.Average(),
                 DeltaSurvival = dSurv, DeltaSurvivalSe = dSurvSe,
                 DeltaHp = dHp, DeltaHpSe = dHpSe,

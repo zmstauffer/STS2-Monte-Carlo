@@ -3,7 +3,7 @@ namespace SpireMonteCarlo.Sim;
 /// <summary>
 /// Puts what the simulations found into plain language: where the recommended option wins (or loses) against the baseline,
 /// in terms a player recognises: how often the act is survived, which kind of fight is deadlier, how much HP fights cost,
-/// and how the deck does against next-act elites.
+/// and how the end-of-act deck does in its test fights against the next act.
 /// </summary>
 public static class Explainer
 {
@@ -57,8 +57,8 @@ public static class Explainer
         if (Math.Abs(hpEnd) >= 3 && o.SurvivalRate > 0 && baseline.SurvivalRate > 0)
             parts.Add($"the act ends with about {Math.Abs(hpEnd):F0} {(hpEnd > 0 ? "more" : "less")} HP when it is survived");
 
-        if (!double.IsNaN(o.ProbeWinRate) && !double.IsNaN(baseline.ProbeWinRate) && Math.Abs(o.ProbeWinRate - baseline.ProbeWinRate) >= RateStep)
-            parts.Add($"the end-of-act deck wins {Pct(o.ProbeWinRate)} of next-act elite fights versus {Pct(baseline.ProbeWinRate)}");
+        if (!double.IsNaN(o.ProbeHpLost) && !double.IsNaN(baseline.ProbeHpLost) && Math.Abs(o.ProbeHpLost - baseline.ProbeHpLost) >= 1)
+            parts.Add($"the end-of-act deck loses about {Math.Abs(o.ProbeHpLost - baseline.ProbeHpLost):F0} HP {(o.ProbeHpLost < baseline.ProbeHpLost ? "less" : "more")} per next-act test fight ({o.ProbeHpLost:F0} versus {baseline.ProbeHpLost:F0})");
 
         return parts.Count == 0 ? "the differences are small" : string.Join("; ", parts);
     }
@@ -71,8 +71,8 @@ public static class Explainer
         if (o.BossDeathRate - baseline.BossDeathRate >= RateStep) yield return $"loses more often to bosses ({Pct(o.BossDeathRate)} versus {Pct(baseline.BossDeathRate)})";
         if (o.EliteDeathRate - baseline.EliteDeathRate >= RateStep) yield return $"loses more often to elites ({Pct(o.EliteDeathRate)} versus {Pct(baseline.EliteDeathRate)})";
         if (o.EliteHpLost - baseline.EliteHpLost >= HpStep) yield return $"costs about {o.EliteHpLost - baseline.EliteHpLost:F0} more HP in each elite fight";
-        if (!double.IsNaN(o.ProbeWinRate) && baseline.ProbeWinRate - o.ProbeWinRate >= RateStep)
-            yield return $"does worse against next-act elites ({Pct(o.ProbeWinRate)} versus {Pct(baseline.ProbeWinRate)})";
+        if (!double.IsNaN(o.ProbeHpLost) && o.ProbeHpLost - baseline.ProbeHpLost >= 1)
+            yield return $"leaves a weaker deck for the next act (it loses {o.ProbeHpLost:F0} HP per test fight versus {baseline.ProbeHpLost:F0})";
     }
 
     private static void AddDeaths(List<string> parts, string kind, double option, double baseline)

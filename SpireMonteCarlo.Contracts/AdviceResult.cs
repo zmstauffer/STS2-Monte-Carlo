@@ -27,7 +27,7 @@ public sealed class AdviceResult
     /// <summary>The label of the option the others are compared with (skip, rest, buy nothing, ...).</summary>
     public string Baseline { get; set; } = "";
 
-    /// <summary>The recommended option's label, the one-line suggestion, and whether it is clearly better than the baseline.</summary>
+    /// <summary>The recommended option's label, the one-line suggestion, and whether it is clearly better than every other option.</summary>
     public string Best { get; set; } = "";
     public string Suggestion { get; set; } = "";
     public bool BestIsClear { get; set; }
@@ -51,8 +51,19 @@ public sealed class AdviceOption
     public double SurvivalPct { get; set; }
     public double HpLeft { get; set; }
 
-    /// <summary>Share of next-act elites the end-of-act deck beats; null in Act 3.</summary>
+    /// <summary>Share of deck-test fights the end-of-act deck wins; null in Act 3.</summary>
     public double? NextActEliteWinPct { get; set; }
+
+    /// <summary>Average HP the end-of-act deck loses per deck-test fight (3 next-act elites and a boss, each from full HP); null in Act 3.</summary>
+    public double? DeckTestHpLost { get; set; }
+
+    /// <summary>
+    /// Points behind the best option (0 for the best; one point is about one percent more chance of getting through the act, with HP
+    /// left and the deck test counted in), its uncertainty (about two standard errors), and whether the gap is within that noise.
+    /// </summary>
+    public double PointsVsBest { get; set; }
+    public double PointsVsBestUncertainty { get; set; }
+    public bool AboutEqualToBest { get; set; }
 
     /// <summary>Overall score difference from the baseline, its uncertainty (about two standard errors), and whether it is clearly not noise.</summary>
     public double DeltaScore { get; set; }

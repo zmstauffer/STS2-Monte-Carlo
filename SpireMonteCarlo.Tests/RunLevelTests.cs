@@ -145,11 +145,12 @@ public class AdviceEngineTests
     }
 
     [Fact]
-    public void ARolloutValuesBeatingTheNextActEliteProbeAboveLosingIt()
+    public void ARolloutValuesAStrongerDeckTestAboveAWeakerOne()
     {
         var log = new List<FightLogEntry>();
-        RolloutResult Result(int wins) => new(true, 40, 80, 8, 8, null, 0, new List<string>(), log, ProbeFights: 3, ProbeWins: wins);
-        Assert.True(AdviceEngine.ValueOf(Result(3)) > AdviceEngine.ValueOf(Result(1)));
+        RolloutResult Result(double loss) => new(true, 40, 80, 8, 8, null, 0, new List<string>(), log, ProbeFights: 4, ProbeWins: 4, ProbeLoss: loss);
+        Assert.True(AdviceEngine.ValueOf(Result(1.0)) > AdviceEngine.ValueOf(Result(2.0)));
+        Assert.Equal(0.75, Result(1.0).DeckStrength, 6);
         Assert.Equal(0.0, AdviceEngine.ValueOf(new RolloutResult(false, 0, 80, 3, 4, "X", 0, new List<string>(), log, 0, 0)));
     }
 }

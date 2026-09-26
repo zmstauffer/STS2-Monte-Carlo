@@ -213,7 +213,7 @@ public static class SimCommands
         double realBoss = Math.Max(1, realFights.GetValueOrDefault("boss"));
         Console.WriteLine($"At the end: deck {results.Average(r => r.DeckSize):F1} cards, {results.Average(r => r.UpgradedCards):F1} upgraded, {results.Average(r => r.Relics):F1} relics that do something");
         var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
-        if (probed.Count > 0) Console.WriteLine($"Act 2 elite probe (3 fights from the post-boss HP), runs that reached it: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won");
+        if (probed.Count > 0) Console.WriteLine($"Deck test (3 Act 2 elites and an Act 2 boss, each from full HP), runs that reached it: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won, {(double)probed.Sum(r => r.ProbeHpLost) / probed.Sum(r => r.ProbeFights):F1} HP lost per fight, strength {probed.Average(r => r.DeckStrength):F2} (sd {Math.Sqrt(probed.Average(r => r.DeckStrength * r.DeckStrength) - Math.Pow(probed.Average(r => r.DeckStrength), 2)):F2})");
         Console.WriteLine($"Fights per run: normal {PerRun("Monster"):F1} (real {realFights.GetValueOrDefault("monster") / realBoss:F1}), elite {PerRun("Elite"):F1} (real {realFights.GetValueOrDefault("elite") / realBoss:F1})");
         var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());
         var lost = results.SelectMany(r => r.Log).GroupBy(l => l.Encounter).ToDictionary(g => g.Key, g => (Dmg: g.Average(l => (double)l.HpLost), Turns: g.Average(l => (double)l.Turns)));
@@ -289,7 +289,7 @@ public static class SimCommands
         Console.WriteLine($"survive {100.0 * results.Count(r => r.Survived) / Math.Max(1, n):F1}%   start: deck {survivors.Average(r => r.DeckSize):F1} cards, HP {survivors.Average(r => r.End!.Hp):F0}/{survivors.Average(r => r.End!.MaxHp):F0}, {survivors.Average(r => r.End!.Gold):F0} gold");
         Console.WriteLine($"At the end: deck {results.Average(r => r.DeckSize):F1} cards, {results.Average(r => r.UpgradedCards):F1} upgraded");
         var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
-        if (probed.Count > 0) Console.WriteLine($"Act 3 elite probe: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won");
+        if (probed.Count > 0) Console.WriteLine($"Deck test (Act 2 elites and boss): {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won, {(double)probed.Sum(r => r.ProbeHpLost) / probed.Sum(r => r.ProbeFights):F1} HP lost per fight, strength {probed.Average(r => r.DeckStrength):F2}");
 
         var fights = results.SelectMany(r => r.Encounters).GroupBy(e => e).ToDictionary(g => g.Key, g => g.Count());
         var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());

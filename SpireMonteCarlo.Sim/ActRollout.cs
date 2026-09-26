@@ -5,7 +5,11 @@ namespace SpireMonteCarlo.Sim;
 /// <summary>One fight of a rollout, HP in real (unscaled) points; HpLost is what the enemies took off (capped at the HP the player had), before any healing.</summary>
 public sealed record FightLogEntry(string Encounter, int HpBefore, int HpAfter, int DeckSize, int HpLost = 0, int Turns = 0);
 
-public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0, int DeckSize = 0, int UpgradedCards = 0, int Relics = 0, RolloutStart? End = null);
+public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0, int DeckSize = 0, int UpgradedCards = 0, int Relics = 0, RolloutStart? End = null, double ProbeLoss = 0, int ProbeHpLost = 0)
+{
+    /// <summary>How strong the end-of-act deck tested: 1 when the test fights cost nothing, 0 when every one was lost; NaN without a test.</summary>
+    public double DeckStrength => ProbeFights == 0 ? double.NaN : 1 - ProbeLoss / ProbeFights;
+}
 
 // (End is the run as the next act starts, when the boss was beaten: deck, relics, potions, gold, and HP after the next Ancient's heal.)
 
@@ -100,7 +104,10 @@ public sealed class ActRollout
 
     // Re-fit once the Act 2 monsters had their real mechanics (Entomancer's hive, Prism's Vital Spark, ...): 2.5 gives 83% wins,
     // 3.0 gives 91%, 3.5 gives 96% against the two elites left in the pool (real Act 2 elite fatal rates are 6-7%).
-    public const double CalibratedProbeHpScale = 3.0;
+    // The deck test (3 elites and a boss, each from full HP, scored by HP lost) is a yardstick, not a calibration: 4.0 keeps most test fights
+    // winnable so HP lost still separates decks (end-of-Act-1 decks win 81% and lose ~42 HP per fight, deck strength 0.49 +/- 0.13;
+    // at 3.0 they win 73%). Act 2 decks against Act 2's own elites and boss win 96%.
+    public const double CalibratedProbeHpScale = 4.0;
     private readonly RewardPool _pool;
     private readonly int _ascension;
     private readonly RelicPool _relicPool;
@@ -113,8 +120,10 @@ public sealed class ActRollout
     /// </summary>
     private static readonly HashSet<string> ProbeSkips = new() { "DECIMILLIPEDE_ELITE" };
 
-    /// <summary>How many next-act elites the end-of-act deck fights in the probe.</summary>
+    /// <summary>How many elites the end-of-act deck fights in the deck test (plus one boss).</summary>
     public const int ProbeFightCount = 3;
+
+    private readonly string[] _testBossPool;
 
     public ActRollout(SimData data, RunSnapshot snapshot)
     {
@@ -137,9 +146,13 @@ public sealed class ActRollout
         _elitePool = actEncounters.Where(e => e.RoomType == "Elite").Select(e => e.Id).ToArray();
         _bossPool = actEncounters.Where(e => e.RoomType == "Boss").Select(e => e.Id).ToArray();
 
-        string nextVariant = snapshot.Run.Act < 3 ? DefaultVariant(snapshot.Run.Act + 1) : "";
-        _nextElitePool = nextVariant == "" ? Array.Empty<string>()
-            : data.Encounters.All.Where(e => e.RoomType == "Elite" && !ProbeSkips.Contains(e.Id) && (e.Act ?? "").Replace(" ", "").Contains(nextVariant, StringComparison.OrdinalIgnoreCase)).Select(e => e.Id).ToArray();
+        // The deck test: an Act 1 deck is tested against Act 2's elites and boss; an Act 2 deck against Act 2's own (Act 3 is too roughly
+        // modelled to be a fair yardstick). There is no test in Act 3, the last act.
+        string testVariant = snapshot.Run.Act switch { 1 => DefaultVariant(2), 2 => DefaultVariant(2), _ => "" };
+        IEnumerable<EncounterDef> testEncounters = testVariant == "" ? Enumerable.Empty<EncounterDef>()
+            : data.Encounters.All.Where(e => !ProbeSkips.Contains(e.Id) && (e.Act ?? "").Replace(" ", "").Contains(testVariant, StringComparison.OrdinalIgnoreCase));
+        _nextElitePool = testEncounters.Where(e => e.RoomType == "Elite").Select(e => e.Id).ToArray();
+        _testBossPool = testEncounters.Where(e => e.RoomType == "Boss").Select(e => e.Id).ToArray();
     }
 
     private static string DefaultVariant(int act) => act switch { 1 => "Overgrowth", 2 => "Hive", _ => "Glory" };
@@ -188,7 +201,8 @@ public sealed class ActRollout
 
         MapCoordinate at = _snap.Map.Current ?? StartPoint();
         string? diedTo = null;
-        int probeFights = 0, probeWins = 0;
+        int probeFights = 0, probeWins = 0, probeHpLost = 0;
+        double probeLoss = 0;
         RolloutStart? endState = null;
 
         var potions = start.Potions.Select(PotionLibrary.Find).OfType<PotionDef>().ToList();
@@ -449,28 +463,34 @@ public sealed class ActRollout
             return true;
         }
 
-        // The end-of-act deck fights a few next-act elites, each from the same post-boss HP, so decks that scale (and survive
-        // Act 1 only barely) are told apart from decks that just get through it.
+        // The deck test: the end-of-act deck (with its relics and potions) fights a few elites and a boss of the next act, each from full HP,
+        // and what they cost measures how strong the deck is. HP lost doesn't top out the way wins do (nearly every deck beats most
+        // elites), so it still tells cards apart late in an act when surviving the rest of the act is all but certain.
         int PostBossHp() => hp + (int)Math.Round((maxHp - hp) * (_ascension >= 2 ? 0.8 : 1.0));   // the next act's Ancient heals 80% of the missing HP from A2
 
         void Probe()
         {
-            if (_nextElitePool.Length == 0 || _snap.Run.Act >= 2) return;   // Act 3's monsters aren't modelled yet, so a probe of them would mean nothing
-            int postBossHp = PostBossHp();
+            if (_nextElitePool.Length == 0) return;
             double rescale = ProbeHpScale / PlayerHpScale;
-            int probeMax = (int)Math.Round(maxHp * rescale), start = (int)Math.Round(postBossHp * rescale);
+            int probeMax = (int)Math.Round(maxHp * rescale);
+            var testRng = new SimRng(SimRng.Mix(seed, 0x9B0BE));
             var order = _nextElitePool.ToList();
-            new SimRng(SimRng.Mix(seed, 0x9B0BE)).Shuffle(order);
-            for (int i = 0; i < ProbeFightCount && i < order.Count; i++)
+            testRng.Shuffle(order);
+            order = order.Take(ProbeFightCount).ToList();
+            if (_testBossPool.Length > 0) order.Add(_testBossPool[testRng.Next(_testBossPool.Length)]);
+            for (int i = 0; i < order.Count; i++)
             {
                 if (!_data.Encounters.Contains(order[i])) continue;
                 EncounterDef encounter = _data.Encounters.Get(order[i]);
                 ulong probeSeed = SimRng.Mix(seed, 0x9B0BE + (ulong)i + 1);
                 string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(probeSeed, 1)));
                 if (lineup.Any(m => !_data.Monsters.Contains(m))) continue;
-                FightResult r = FightSimulator.Run(deck, start, probeMax, lineup.Select(_data.Monsters.Get), _ascension, probeSeed, _bot, altStarts: encounter.AltStarts,
-                    services: _data.Services, potions: potions.ToList(), stakes: 1, relics: relics, hpScale: ProbeHpScale);
+                FightResult r = FightSimulator.Run(deck, probeMax, probeMax, lineup.Select(_data.Monsters.Get), _ascension, probeSeed, _bot, altStarts: encounter.AltStarts,
+                    services: _data.Services, potions: potions.ToList(), stakes: encounter.RoomType == "Boss" ? 2 : 1, relics: relics, hpScale: ProbeHpScale);
                 probeFights++;
+                int lost = r.Won ? Math.Min(r.HpLost, probeMax) : probeMax;
+                probeLoss += (double)lost / probeMax;
+                probeHpLost += (int)Math.Round(lost / ProbeHpScale);
                 if (r.Won) probeWins++;
             }
         }
@@ -631,6 +651,13 @@ public sealed class ActRollout
             if (!RunPendingFight(pending, new SimRng(SimRng.Mix(seed, 0xF16))))
                 return Result(false);
 
+        // A decision right after the boss (its card reward) has no act left to play: only the deck test tells the options apart.
+        if (_points.TryGetValue(at, out MapPointSnapshot? current) && current.Type == "Boss")
+        {
+            Probe();
+            return Result(true);
+        }
+
         for (int step = 0; step < 40 && _points.TryGetValue(at, out MapPointSnapshot? here) && here.Children.Count > 0; step++)
         {
             var reachable = here.Children.Where(_points.ContainsKey).ToList();
@@ -725,7 +752,7 @@ public sealed class ActRollout
         // Ran out of map without meeting a boss node (shouldn't happen): count it as reaching the end.
         return Result(true);
 
-        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins, deck.Count, deck.Count(c => c.Upgraded), relics.Count, endState);
+        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins, deck.Count, deck.Count(c => c.Upgraded), relics.Count, endState, probeLoss, probeHpLost);
 
         int Real(int scaled) => (int)Math.Round(scaled / PlayerHpScale);
     }

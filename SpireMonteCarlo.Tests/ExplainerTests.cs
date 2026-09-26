@@ -8,7 +8,7 @@ public class ExplainerTests
     private static OptionReport Option(string label, bool baseline, double survive, double probe, double boss = 0, double elite = 0, double eliteHp = 20, double bossHp = 40,
         double deltaValue = 0, double se = 0.01) => new()
     {
-        Label = label, IsBaseline = baseline, SurvivalRate = survive, ProbeWinRate = probe, BossDeathRate = boss, EliteDeathRate = elite,
+        Label = label, IsBaseline = baseline, SurvivalRate = survive, ProbeHpLost = probe, BossDeathRate = boss, EliteDeathRate = elite,
         EliteHpLost = eliteHp, BossHpLost = bossHp, MeanHpEndIfSurvived = 30, DeltaValue = deltaValue, DeltaValueSe = se,
     };
 
@@ -21,10 +21,10 @@ public class ExplainerTests
     public void ATradeOffIsNamedWhenTheBestOptionIsWorseOnSomethingItCares()
     {
         var report = Report(
-            Option("SCALING_CARD", false, survive: 0.66, probe: 0.97, boss: 0.20, deltaValue: 0.15),
-            Option("Skip", true, survive: 0.70, probe: 0.85, boss: 0.15));
+            Option("SCALING_CARD", false, survive: 0.66, probe: 18, boss: 0.20, deltaValue: 0.15),
+            Option("Skip", true, survive: 0.70, probe: 26, boss: 0.15));
         var lines = Explainer.Explain(report);
-        Assert.Contains(lines, l => l.Contains("beats \"Skip\"") && l.Contains("97%") && l.Contains("85%"));
+        Assert.Contains(lines, l => l.Contains("beats \"Skip\"") && l.Contains("8 HP less per next-act test fight (18 versus 26)"));
         Assert.Contains(lines, l => l.StartsWith("The trade-off") && l.Contains("survives the act slightly less often"));
     }
 
@@ -57,5 +57,14 @@ public class ExplainerTests
         string text = string.Join(" ", Explainer.Explain(report));
         Assert.Contains("deaths to boss fights fall from 20% to 5%", text);
         Assert.Contains("elite fights cost about 8 HP less", text);
+    }
+
+    [Fact]
+    public void AnOptionIsAboutEqualToTheBestWhenTheGapIsNoiseOrUnderOnePoint()
+    {
+        Assert.True(new OptionReport { Label = "best", DeltaVsBest = 0 }.AboutEqualToBest);
+        Assert.True(new OptionReport { Label = "noisy", DeltaVsBest = -0.03, DeltaVsBestSe = 0.02 }.AboutEqualToBest);
+        Assert.True(new OptionReport { Label = "tiny", DeltaVsBest = -0.008, DeltaVsBestSe = 0.001 }.AboutEqualToBest);
+        Assert.False(new OptionReport { Label = "worse", DeltaVsBest = -0.05, DeltaVsBestSe = 0.01 }.AboutEqualToBest);
     }
 }
