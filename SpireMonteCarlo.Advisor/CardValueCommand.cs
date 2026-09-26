@@ -37,6 +37,8 @@ public static class CardValueCommand
         // --cards A,B limits the list (any ids, e.g. an unplayable curse as the "dead card" reference).
         if (Option(args, "--cards") is { } only)
             cards = only.Split(',').Select(id => (Id: id.Trim().ToUpperInvariant(), Rarity: pool.RarityOf(id.Trim().ToUpperInvariant()))).ToList();
+        // An unplayable curse with no effect: what a card that does nothing costs. A card scoring well below it is being misplayed.
+        if (!cards.Any(c => c.Id == "INJURY")) cards.Add(("INJURY", CardRarity.Common));
         var sw = Stopwatch.StartNew();
         var bot = new BasicBot();
 
@@ -72,6 +74,8 @@ public static class CardValueCommand
 
         Console.WriteLine($"Base deck \"{baseName}\" ({baseDeck.Count} cards), {encounters.Count} Act 1 fights x {n} seeds at {hp} HP, {sw.Elapsed.TotalSeconds:F0}s.");
         Console.WriteLine($"Base deck loses {Enumerable.Range(0, encounters.Count).Average(e => loss[0, e]):F1} HP per fight. Rank correlation of HP saved with Codex Elo: {spearman:F2}");
+        var dead = rows.First(r => r.Id == "INJURY");
+        Console.WriteLine($"A dead card (Injury) saves {Overall(dead):F1} per fight; cards well below that are likely misplayed: {string.Join(", ", rows.Where(r => r.Id != "INJURY" && Overall(r) < Overall(dead) - 1.5).Select(r => $"{r.Id} {Overall(r):F1}"))}");
         Console.WriteLine();
         Console.WriteLine($"{"card",-22} {"rarity",-9} {"elo",6} {"saved/fight",11} {"normal",7} {"elite",7} {"boss",7}  rank sim/elo");
         var order = withElo.Select((r, i) => (Row: r, Gap: simRank[i] - eloRank[i], SimRank: simRank[i], EloRank: eloRank[i])).OrderBy(x => x.Gap).ToList();
