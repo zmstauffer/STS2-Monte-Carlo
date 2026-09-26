@@ -145,7 +145,9 @@ public sealed class MonsterLibrary
                 if (!_classes.ContainsKey(id)) throw new KeyNotFoundException($"Neither Codex nor the game data has monster '{id}'.");
                 m = new CodexMonster { Id = id, Name = id, Type = "Normal" };
             }
-            return _cache[id] = Build(m, _machines.GetValueOrDefault(id), _classes.GetValueOrDefault(id));
+            MonsterDef def = Build(m, _machines.GetValueOrDefault(id), _classes.GetValueOrDefault(id));
+            MonsterOverrides.Apply(def);
+            return _cache[id] = def;
         }
     }
 

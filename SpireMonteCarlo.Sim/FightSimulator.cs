@@ -1,6 +1,6 @@
 namespace SpireMonteCarlo.Sim;
 
-public readonly record struct FightResult(bool Won, int HpLost, int Turns, int HpAfter, IReadOnlyList<PotionDef>? PotionsLeft = null);
+public readonly record struct FightResult(bool Won, int HpLost, int Turns, int HpAfter, IReadOnlyList<PotionDef>? PotionsLeft = null, IReadOnlyList<string>? LostCards = null);
 
 public static class FightSimulator
 {
@@ -24,7 +24,7 @@ public static class FightSimulator
             trace?.Invoke($"    enemy turn: HP {hpBefore} -> {combat.Hp}");
         }
         trace?.Invoke($"  result: {combat.Result}, HP lost {combat.HpLost}, turns {combat.Turn}");
-        return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList());
+        return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList());
     }
 
     /// <summary>Plans the turn and carries the plan out, planning again whenever a draw or generated card changes the hand.</summary>

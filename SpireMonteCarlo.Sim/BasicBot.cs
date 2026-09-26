@@ -374,6 +374,8 @@ public sealed class BasicBot
             PowerKind.FlameBarrier => amount * Math.Max(1, combat.Enemies.Count(e => e.Alive && combat.IntendsAttack(e))) * 1.5,
             PowerKind.OneTwoPunch => amount * 5,
             PowerKind.FreeAttack => 4,
+            // Every point of sandpit is a turn of life; it is worth a lot when the countdown is short and little while it is long.
+            PowerKind.Sandpit => amount * (combat.PlayerPowers[(int)PowerKind.Sandpit] <= 2 ? 60 : combat.PlayerPowers[(int)PowerKind.Sandpit] <= 3 ? 14 : 1.5),
             _ => amount * 4,
         };
     }

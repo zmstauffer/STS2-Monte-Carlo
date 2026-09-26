@@ -186,6 +186,10 @@ public sealed partial class Combat
                 if (e.Powers[(int)PowerKind.Slow] > 0) e.SlowCards++;
             if (card.Kind == CardKind.Attack && PlayerPowers[(int)PowerKind.Rage] > 0) GainBlockRaw(PlayerPowers[(int)PowerKind.Rage]);
             RelicAfterCard(card, costPaid);
+            AfterCardTender();
+            AfterCardTainted(card);
+            if (card.CostsMoreEachPlay) card.CostIncreaseThisCombat++;
+            ResolveCurlUps();
         }
         finally
         {

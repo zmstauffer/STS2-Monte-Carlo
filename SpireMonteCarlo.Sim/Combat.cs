@@ -201,6 +201,7 @@ public sealed partial class Combat
         {
             if (target.Powers[(int)PowerKind.Vulnerable] > 0) d *= VulnerableMultiplier + PlayerPowers[(int)PowerKind.Cruelty] / 100.0;
             if (target.Powers[(int)PowerKind.Slow] > 0) d *= 1 + 0.1 * target.SlowCards;
+            if (target.Powers[(int)PowerKind.Flutter] > 0) d *= 0.5;
         }
         if (_penNibActive) d *= 2;
         return (int)Math.Floor(d);
@@ -218,7 +219,7 @@ public sealed partial class Combat
     /// <summary>Damage one hit of an enemy attack of <paramref name="baseDamage"/> would deal to the player right now.</summary>
     public int EnemyAttackDamage(int baseDamage, Enemy attacker)
     {
-        double d = Math.Max(0, baseDamage + attacker.Powers[(int)PowerKind.Strength] + attacker.Powers[(int)PowerKind.Vigor]);
+        double d = Math.Max(0, baseDamage + attacker.Powers[(int)PowerKind.Strength] + attacker.Powers[(int)PowerKind.Vigor] + PlayerPowers[(int)PowerKind.Tainted]);
         if (attacker.Powers[(int)PowerKind.Weak] > 0) d *= 0.75;
         if (PlayerPowers[(int)PowerKind.Vulnerable] > 0) d *= 1.5;
         if (PlayerPowers[(int)PowerKind.Colossus] > 0 && attacker.Powers[(int)PowerKind.Vulnerable] > 0) d *= 0.5;
@@ -286,6 +287,11 @@ public sealed partial class Combat
             Hand.Remove(card);
         }
         _playerTurn = false;
+        RefundTender();
+
+        // The Knowledge Demon's Disintegration hurts at the end of every turn.
+        if (PlayerPowers[(int)PowerKind.Disintegration] > 0) LoseHp(PlayerPowers[(int)PowerKind.Disintegration]);
+        if (Result != CombatResult.Ongoing) return;
 
         // Powers that end with the player's turn.
         PlayerPowers[(int)PowerKind.Rage] = 0;
@@ -424,9 +430,11 @@ public sealed partial class Combat
         if (!enemy.Alive || enemy.Dying) return false;
 
         if (enemy.Powers[(int)PowerKind.Intangible] > 0) damage = Math.Min(damage, 1);
+        damage = BeforeEnemyHit(enemy, damage, fromCard);
         int absorbed = Math.Min(enemy.Block, damage);
         enemy.Block -= absorbed;
         int lost = damage - absorbed;
+        if (absorbed > 0 && enemy.Block == 0) OnEnemyBlockBroken(enemy);
 
         if (lost > 0 && enemy.Powers[(int)PowerKind.Slippery] > 0)
         {
@@ -453,6 +461,7 @@ public sealed partial class Combat
             return !enemy.Dying;
         }
         OnEnemyDamaged(enemy);
+        AfterEnemyLostHp(enemy, fromCard);
         MonsterBehaviors.For(enemy.Def.Id)?.OnDamaged(this, enemy, lost);
         return false;
     }
@@ -536,13 +545,15 @@ public sealed partial class Combat
     {
         // Slow counts cards played since the enemy side's turn last began.
         foreach (Enemy e in Enemies) e.SlowCards = 0;
+        SandpitCountdown();
+        if (Result != CombatResult.Ongoing) return;
 
         foreach (Enemy e in Enemies.ToList())
         {
             if (!e.Alive && e.Reviving && Result == CombatResult.Ongoing) MonsterBehaviors.For(e.Def.Id)?.OnDeadTurn(this, e);
             if (!e.Alive || Result != CombatResult.Ongoing) continue;
 
-            e.Block = 0;
+            if (e.Powers[(int)PowerKind.Burrowed] == 0) e.Block = 0;   // a burrowed enemy keeps its block until it is broken
             if (e.Powers[(int)PowerKind.Poison] > 0)
             {
                 e.Hp -= e.Powers[(int)PowerKind.Poison];
@@ -561,6 +572,7 @@ public sealed partial class Combat
         }
 
         // End of the enemy side's turn: debuffs count down on everyone, and turn-long effects wear off.
+        PlayerPowers[(int)PowerKind.Tainted] = 0;
         foreach (PowerKind kind in Enum.GetValues<PowerKind>())
         {
             if (!PowerRules.TicksDownAfterEnemyTurn(kind)) continue;
@@ -574,6 +586,14 @@ public sealed partial class Combat
         {
             e.Powers[(int)PowerKind.Strength] += e.Powers[(int)PowerKind.TempStrengthDown];
             e.Powers[(int)PowerKind.TempStrengthDown] = 0;
+        }
+
+        // The Slumbering Beetle counts down the same way as Lagavulin: on its last turn it loses its plating and wakes.
+        foreach (Enemy e in Enemies)
+        {
+            if (!e.Alive || e.Powers[(int)PowerKind.Slumber] <= 0) continue;
+            e.Powers[(int)PowerKind.Slumber]--;
+            if (e.Powers[(int)PowerKind.Slumber] <= 0) e.Powers[(int)PowerKind.Plating] = 0;
         }
 
         // Sleepers count down; on their last sleeping turn they lose their plating, then wake.
@@ -605,8 +625,10 @@ public sealed partial class Combat
 
         int hits = move.Id == "EXPLODE" ? (e.ExplodeDamage > 0 ? 1 : 0) : (move.IsAttack ? move.HitsAt(Ascension) : 0);
         int baseDamage = MoveBaseDamage(e);
+        int hpBeforeAttack = Hp;
         for (int h = 0; h < hits && Result == CombatResult.Ongoing && e.Alive; h++)
             HitPlayer(EnemyAttackDamage(baseDamage, e), e);
+        if (hits > 0 && baseDamage > 0 && Hp == hpBeforeAttack && Result == CombatResult.Ongoing) AfterEnemyAttackFullyBlocked(e);
         if (hits > 0) e.Powers[(int)PowerKind.Vigor] = 0;   // Vigor is used up by the attack it boosts
         if (move.Id == "PRESSURE_GUN") e.GunBonus += 5;
         if (!e.Alive && !e.Dying) return;

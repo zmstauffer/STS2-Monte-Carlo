@@ -165,7 +165,7 @@ public class CombatRulesTests
         CardDef[] deck = Enumerable.Repeat(Strike, 5).Concat(Enumerable.Repeat(Defend, 4)).Append(Bash).ToArray();
         FightResult a = FightSimulator.Run(deck, 80, 80, new[] { Dummy(60, 9) }, 0, seed: 42);
         FightResult b = FightSimulator.Run(deck, 80, 80, new[] { Dummy(60, 9) }, 0, seed: 42);
-        Assert.Equal(a with { PotionsLeft = null }, b with { PotionsLeft = null });
+        Assert.Equal(a with { PotionsLeft = null, LostCards = null }, b with { PotionsLeft = null, LostCards = null });
     }
 
     [Fact]

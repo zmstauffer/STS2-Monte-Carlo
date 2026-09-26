@@ -40,7 +40,8 @@ public sealed class CardLibrary
         lock (_cache)
         {
             if (_cache.TryGetValue((id, upgraded), out CardDef? cached)) return cached;
-            CardDef def = FromRecipe(id, upgraded)
+            CardDef def = Special(id, upgraded)
+                ?? FromRecipe(id, upgraded)
                 ?? (_codex.TryGetValue(id, out CodexCard? card) ? Build(card, upgraded) : Unknown(id, upgraded));
             _cache[(id, upgraded)] = def;
             // Cards built from Codex numbers have an upgraded form too, so rest sites and Armaments-style effects can upgrade them.
@@ -50,6 +51,18 @@ public sealed class CardLibrary
             return def;
         }
     }
+
+    /// <summary>Cards the game defines in ways the Codex numbers can't express (status cards that do something when played).</summary>
+    private static CardDef? Special(string id, bool upgraded) => id switch
+    {
+        // The Insatiable's escape hatch: playing it pushes the sandpit back one turn, and it costs one more every time.
+        "FRANTIC_ESCAPE" => new CardDef
+        {
+            Id = id, Upgraded = upgraded, Kind = CardKind.Status, Cost = 1, CostsMoreEachPlay = true,
+            Effects = new[] { new Effect(EffectOp.BuffSelf, 1, Power: PowerKind.Sandpit) },
+        },
+        _ => null,
+    };
 
     public bool Contains(string id) => _codex.ContainsKey(id) || _game.ContainsKey(id);
 

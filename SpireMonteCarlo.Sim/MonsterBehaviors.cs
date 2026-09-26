@@ -41,6 +41,12 @@ public static class MonsterBehaviors
 
     static MonsterBehaviors()
     {
+        Register("ENTOMANCER", new EntomancerBehavior());
+        Register("KNOWLEDGE_DEMON", new KnowledgeDemonBehavior());
+        Register("CRUSHER", new CrabRageBehavior());
+        Register("ROCKET", new CrabRageBehavior());
+        Register("BOWLBUG_ROCK", new BowlbugRockBehavior());
+        Register("THIEVING_HOPPER", new ThievingHopperBehavior());
         var segment = new DecimillipedeBehavior();
         foreach (string id in new[] { "DECIMILLIPEDE_SEGMENT_FRONT", "DECIMILLIPEDE_SEGMENT_MIDDLE", "DECIMILLIPEDE_SEGMENT_BACK" })
             Register(id, segment);

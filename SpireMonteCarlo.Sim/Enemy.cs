@@ -50,6 +50,12 @@ public sealed class Enemy
     /// <summary>Dead for now but will heal to full on its next turn (Illusion).</summary>
     public bool Reviving { get; set; }
 
+    /// <summary>A card attack hit it this play and it will gain its Curl Up block once the card is done.</summary>
+    public bool CurlUpPending { get; set; }
+
+    /// <summary>Ids of the cards this monster stole from the player (Thieving Hopper).</summary>
+    public List<string> StolenCards { get; } = new();
+
     /// <summary>Gold this monster carries that the player gets back if it is killed (Heist).</summary>
     public int HeistGold { get; set; }
 
@@ -68,6 +74,8 @@ public sealed class Enemy
         };
         Array.Copy(Powers, e.Powers, Powers.Length);
         foreach (var kv in State) e.State[kv.Key] = kv.Value;
+        e.CurlUpPending = CurlUpPending;
+        e.StolenCards.AddRange(StolenCards);
         e._stateId = _stateId;
         e._currentMoveState = _currentMoveState;
         e._usedOnce = _usedOnce == null ? null : new HashSet<string>(_usedOnce);

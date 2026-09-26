@@ -158,6 +158,13 @@ public enum PowerKind
     ChainsOfBinding,
     HardToKill,
 
+    /// <summary>On the player: the Insatiable's sandpit counts down each enemy turn and kills the player at 0; Frantic Escape adds 1.</summary>
+    Sandpit,
+    /// <summary>On the player (Knowledge Demon's curse): take this much damage at the end of each of your turns.</summary>
+    Disintegration,
+    /// <summary>On the player: each attack hit does this much more damage until the enemy turn ends (Infested Prism's Vital Spark).</summary>
+    Tainted,
+
     Unsupported,
 }
 
@@ -181,7 +188,8 @@ public static class PowerRules
         kind is PowerKind.Vulnerable or PowerKind.Weak or PowerKind.Frail or PowerKind.Poison or PowerKind.Ringing
             or PowerKind.NoDraw or PowerKind.TempStrengthDown
             or PowerKind.Constrict or PowerKind.Tangled or PowerKind.Smoggy or PowerKind.Shrink or PowerKind.Hex
-            or PowerKind.Surrounded or PowerKind.ChainsOfBinding or PowerKind.Tender or PowerKind.Imbalanced or PowerKind.Slow;
+            or PowerKind.Surrounded or PowerKind.ChainsOfBinding or PowerKind.Tender or PowerKind.Imbalanced or PowerKind.Slow
+            or PowerKind.Sandpit or PowerKind.Tainted;
 
     /// <summary>Debuffs that count down one step each time the enemy side finishes its turn.</summary>
     public static bool TicksDownAfterEnemyTurn(PowerKind kind) =>

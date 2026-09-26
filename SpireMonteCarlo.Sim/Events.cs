@@ -34,6 +34,13 @@ public sealed class EventState
     /// <summary>Effects the simulator doesn't model (enchantments, relics with no effect here), for reports.</summary>
     public List<string> Notes { get; } = new();
 
+    /// <summary>A copy to try an option on: same run, its own deck and lists, and a copy of the random stream.</summary>
+    public EventState Copy() => new()
+    {
+        Data = Data, Pool = Pool, RelicPool = RelicPool, Rng = Rng.Clone(), Deck = Deck.ToList(), Act = Act, Ascension = Ascension, Floor = Floor,
+        Hp = Hp, MaxHp = MaxHp, Gold = Gold, Relics = Relics.ToList(), Potions = Potions.ToList(), PotionSlots = PotionSlots,
+    };
+
     public double HpFraction => MaxHp <= 0 ? 0 : Hp / MaxHp;
     public bool Has(string relic) => Relics.Contains(relic);
 

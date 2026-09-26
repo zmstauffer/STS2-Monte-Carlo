@@ -228,8 +228,46 @@ public static class SimCommands
             Console.WriteLine($"  fight {k + 1,2}: {reached.Count,5} runs    {reached.Average(e => e.HpBefore),6:F1}   {reached.Average(e => e.HpBefore - e.HpAfter),8:F1}   {reached.Average(e => e.DeckSize),9:F1}   {100.0 * reached.Count(e => e.HpAfter > 0) / reached.Count,5:F1}%");
         }
         Console.WriteLine();
-        Console.WriteLine($"Died on: normal {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Get(r.DiedTo).RoomType == "Monster") / n:F1}%   elite {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Get(r.DiedTo).RoomType == "Elite") / n:F1}%   boss {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Get(r.DiedTo).RoomType == "Boss") / n:F1}%");
+        Console.WriteLine($"Died on: normal {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Contains(r.DiedTo) && data.Encounters.Get(r.DiedTo).RoomType == "Monster") / n:F1}%   elite {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Contains(r.DiedTo) && data.Encounters.Get(r.DiedTo).RoomType == "Elite") / n:F1}%   boss {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Contains(r.DiedTo) && data.Encounters.Get(r.DiedTo).RoomType == "Boss") / n:F1}%   event {100.0 * results.Count(r => r.DiedTo != null && !data.Encounters.Contains(r.DiedTo)) / n:F1}%");
+
+        if (Option(args, "--act2") is { } act2Map) RunAct2(data, stats, results, act2Map, ascension, args);
         return 0;
+    }
+
+    /// <summary>Carries the runs that beat Act 1 (with the deck, relics, potions, gold and HP they ended it with) through Act 2 and compares with the real Act 2 numbers.</summary>
+    private static void RunAct2(SimData data, IReadOnlyDictionary<string, CodexEncounterStat> stats, RolloutResult[] act1, string mapPath, int ascension, string[] args)
+    {
+        double Number(string name, double fallback) => double.Parse(Option(args, name) ?? fallback.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture);
+        Contracts.RunSnapshot snap = Contracts.SnapshotSerializer.Deserialize(File.ReadAllText(mapPath));
+        snap.Run.Character = "ironclad"; snap.Run.Ascension = ascension; snap.Run.Act = 2;
+        snap.Map!.Current = null; snap.Map.Visited = new();
+        snap.Odds = null;
+        snap.Plan = new Contracts.ActPlan { ActId = "HIVE" };
+        var rollout = new ActRollout(data, snap) { PlayerHpScale = Number("--hp-scale2", ActRollout.CalibratedPlayerHpScale), ProbeHpScale = Number("--probe-scale", ActRollout.CalibratedProbeHpScale) };
+
+        RolloutResult[] survivors = act1.Where(r => r.Survived && r.End != null).ToArray();
+        var results = new RolloutResult[survivors.Length];
+        Parallel.For(0, survivors.Length, i => results[i] = rollout.Run(survivors[i].End!, SimRng.Mix(17, (ulong)i)));
+
+        int n = results.Length;
+        Console.WriteLine();
+        Console.WriteLine($"=== Act 2, for the {n} runs that beat Act 1 (HP scale {rollout.PlayerHpScale:F2}) ===");
+        Console.WriteLine($"survive {100.0 * results.Count(r => r.Survived) / Math.Max(1, n):F1}%   start: deck {survivors.Average(r => r.DeckSize):F1} cards, HP {survivors.Average(r => r.End!.Hp):F0}/{survivors.Average(r => r.End!.MaxHp):F0}, {survivors.Average(r => r.End!.Gold):F0} gold");
+        Console.WriteLine($"At the end: deck {results.Average(r => r.DeckSize):F1} cards, {results.Average(r => r.UpgradedCards):F1} upgraded");
+        var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
+        if (probed.Count > 0) Console.WriteLine($"Act 3 elite probe: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won");
+
+        var fights = results.SelectMany(r => r.Encounters).GroupBy(e => e).ToDictionary(g => g.Key, g => g.Count());
+        var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());
+        var lost = results.SelectMany(r => r.Log).GroupBy(l => l.Encounter).ToDictionary(g => g.Key, g => (Dmg: g.Average(l => (double)l.HpLost), Turns: g.Average(l => (double)l.Turns)));
+        Console.WriteLine($"{"encounter",-32} {"room",-8} {"fights",7} {"sim fatal%",11} {"real fatal%",12} {"sim dmg",8} {"real dmg",9} {"sim turns",10} {"real turns",11}");
+        foreach (var (id, count) in fights.OrderBy(kv => data.Encounters.Contains(kv.Key) ? data.Encounters.Get(kv.Key).RoomType : "").ThenByDescending(kv => kv.Value))
+        {
+            if (count < Math.Max(30, n / 30) || !data.Encounters.Contains(id)) continue;
+            CodexCharacterStat? real = stats.TryGetValue(id, out CodexEncounterStat? s) ? s.Characters.FirstOrDefault(c => c.Character == "IRONCLAD") : null;
+            Console.WriteLine($"{id,-32} {data.Encounters.Get(id).RoomType,-8} {count,7} {100.0 * deaths.GetValueOrDefault(id) / count,11:F1} {(real == null ? "" : (100.0 * real.Fatal / real.Total).ToString("F1")),12} {lost[id].Dmg,8:F1} {real?.AvgDamage ?? 0,9:F1} {lost[id].Turns,10:F1} {real?.AvgTurns ?? 0,11:F1}");
+        }
+        Console.WriteLine($"Died on: normal {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Contains(r.DiedTo) && data.Encounters.Get(r.DiedTo).RoomType == "Monster") / n:F1}%   elite {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Contains(r.DiedTo) && data.Encounters.Get(r.DiedTo).RoomType == "Elite") / n:F1}%   boss {100.0 * results.Count(r => r.DiedTo != null && data.Encounters.Contains(r.DiedTo) && data.Encounters.Get(r.DiedTo).RoomType == "Boss") / n:F1}%   unmodelled fights per run {results.Average(r => r.UnmodelledFights):F2}");
     }
 
     /// <summary>What the default reward policy picks, and how much of it the engine models properly.</summary>

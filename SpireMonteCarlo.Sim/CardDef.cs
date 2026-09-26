@@ -137,6 +137,9 @@ public sealed class CardDef
     /// <summary>Costs 1 less this turn for each Attack played this turn (Stomp).</summary>
     public bool CheaperPerAttackPlayed { get; init; }
 
+    /// <summary>Costs 1 more energy every time it is played, for the rest of the combat (Frantic Escape).</summary>
+    public bool CostsMoreEachPlay { get; init; }
+
     /// <summary>When exhausted, gains Amount energy (Drum of Battle).</summary>
     public int EnergyWhenExhausted { get; init; }
 
@@ -154,6 +157,7 @@ public sealed class CardDef
     // ---- per-copy state, changed during a combat ----
     public int BonusDamage { get; set; }
     public int CostReductionThisTurn { get; set; }
+    public int CostIncreaseThisCombat { get; set; }
     public bool FreeThisTurn { get; set; }
     public bool UpgradedInCombat { get; set; }
     public CardDef? UpgradedForm { get; set; }
@@ -163,7 +167,7 @@ public sealed class CardDef
     {
         Id = Id, Upgraded = Upgraded, Kind = Kind, Cost = Cost, Exhaust = Exhaust, Ethereal = Ethereal, Innate = Innate,
         Retain = Retain, IsStrike = IsStrike, Effects = Effects, EndTurnDamage = EndTurnDamage, EndTurnHpLoss = EndTurnHpLoss,
-        DamageGrowthPerPlay = DamageGrowthPerPlay, CheaperPerAttackPlayed = CheaperPerAttackPlayed,
+        DamageGrowthPerPlay = DamageGrowthPerPlay, CheaperPerAttackPlayed = CheaperPerAttackPlayed, CostsMoreEachPlay = CostsMoreEachPlay,
         EnergyWhenExhausted = EnergyWhenExhausted, PlaysFromExhaustPile = PlaysFromExhaustPile, Approximate = Approximate,
         UpgradedForm = UpgradedForm,
     };
@@ -174,6 +178,7 @@ public sealed class CardDef
         CardDef c = Instantiate();
         c.BonusDamage = BonusDamage;
         c.CostReductionThisTurn = CostReductionThisTurn;
+        c.CostIncreaseThisCombat = CostIncreaseThisCombat;
         c.FreeThisTurn = FreeThisTurn;
         c.UpgradedInCombat = UpgradedInCombat;
         c.Tag = Tag;
@@ -184,7 +189,7 @@ public sealed class CardDef
     public int Tag { get; set; }
 
     /// <summary>The cost to play this copy right now.</summary>
-    public int CurrentCost => Cost < 0 ? Cost : Math.Max(0, Cost - CostReductionThisTurn);
+    public int CurrentCost => Cost < 0 ? Cost : Math.Max(0, Cost + CostIncreaseThisCombat - CostReductionThisTurn);
 
     public override string ToString() => Id + (Upgraded ? "+" : "");
 }
