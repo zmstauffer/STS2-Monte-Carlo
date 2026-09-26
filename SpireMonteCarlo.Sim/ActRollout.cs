@@ -472,6 +472,8 @@ public sealed class ActRollout
             gold = st.Gold;
             potionSlots = st.PotionSlots;
             potions = st.Potions.Select(PotionLibrary.Find).OfType<PotionDef>().ToList();
+            foreach (string relic in st.RemovedRelics)
+                if (owned.Remove(relic) && RelicRules.Parse(relic) is var kind && kind != RelicKind.Unknown) relics.Remove(kind);
             foreach (string relic in st.PendingRelics) Acquire(relic, rng);
             if (hp <= 0) { diedTo = "EVENT_" + eventId; return false; }
             foreach (PendingFight pending in st.PendingFights)

@@ -97,6 +97,13 @@ public sealed class RewardPool
         return candidates.Count == 0 ? null : candidates[rng.Next(candidates.Count)];
     }
 
+    /// <summary>A random card of the character's pool with this type ("Attack", "Skill", "Power") and rarity, avoiding the excluded ones.</summary>
+    public string? RollTyped(string type, CardRarity rarity, SimRng rng, ICollection<string>? exclude = null)
+    {
+        var candidates = _byTypeAndRarity[(type, rarity)].Where(id => exclude == null || !exclude.Contains(id)).ToList();
+        return candidates.Count == 0 ? null : candidates[rng.Next(candidates.Count)];
+    }
+
     /// <summary>A random Power of the character's pool, whatever its rarity (Lasting Candy's extra card).</summary>
     public string? RollPower(SimRng rng, ICollection<string> exclude)
     {

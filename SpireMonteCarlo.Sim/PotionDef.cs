@@ -52,6 +52,13 @@ public static class PotionLibrary
         return pool.Length == 0 ? null : pool[rng.Next(pool.Length)];
     }
 
+    /// <summary>A random modelled potion of one rarity.</summary>
+    public static PotionDef? Roll(SimRng rng, PotionRarity rarity)
+    {
+        PotionDef[] pool = ModelledByRarity[(int)rarity];
+        return pool.Length == 0 ? null : pool[rng.Next(pool.Length)];
+    }
+
     private static PotionDef P(string id, PotionRarity rarity, Effect[] effects, bool target = false, bool anyTime = false, bool automatic = false, bool token = false) =>
         new() { Id = id, Rarity = rarity, Effects = effects, NeedsTarget = target, AnyTime = anyTime, Automatic = automatic, Token = token };
 

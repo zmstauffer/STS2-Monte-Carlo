@@ -121,6 +121,16 @@ public sealed class RelicPool
         return free.Count == 0 ? null : free[rng.Next(free.Count)];
     }
 
+    /// <summary>A relic of one rarity (0 common, 1 uncommon, 2 rare) the player doesn't own, or null if none is left.</summary>
+    public string? RollRarity(int rarity, SimRng rng, ICollection<string> owned)
+    {
+        var free = _byRarity[rarity].Where(id => !owned.Contains(id)).ToList();
+        return free.Count == 0 ? null : free[rng.Next(free.Count)];
+    }
+
+    /// <summary>Whether events can trade the relic away: the common, uncommon, rare and shop relics are; starter, event and Ancient relics aren't.</summary>
+    public bool IsTradable(string id) => _shop.Contains(id) || _byRarity.Any(pool => pool.Contains(id));
+
     /// <summary>A relic id the player doesn't own, or null if the rolled rarity has none left.</summary>
     public string? Roll(SimRng rng, ICollection<string> owned)
     {

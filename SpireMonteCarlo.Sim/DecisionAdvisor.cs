@@ -33,7 +33,8 @@ public static class DecisionAdvisor
         DecisionType.CardUpgrade => Upgrade(data, snapshot, rollouts, seed),
         DecisionType.Map => Map(data, snapshot, rollouts, seed),
         DecisionType.Shop => Shop(data, snapshot, rollouts, seed),
-        DecisionType.Event => snapshot.EventOptions.Any(o => o.Relic != null && !o.IsLocked) ? AncientRelics(data, snapshot, rollouts, seed) : EventChoice(data, snapshot, rollouts, seed),
+        // Events the library knows are played out by their own rules (Hungry for Mushrooms shows relics, but one of them costs HP).
+        DecisionType.Event => snapshot.EventId != null && EventLibrary.Find(snapshot.EventId) != null ? EventChoice(data, snapshot, rollouts, seed) : AncientRelics(data, snapshot, rollouts, seed),
         _ => throw new NotSupportedException($"Decisions of type '{snapshot.Decision}' are not supported yet."),
     };
 
@@ -127,9 +128,18 @@ public static class DecisionAdvisor
         // The options as the game shows them: the snapshot says which are locked; ours say what each one does.
         EventState probe = ProbeState(data, snapshot, start);
         IReadOnlyList<EventOptionDef> known = def.Options(probe);
-        foreach (EventOptionSnapshot shown in snapshot.EventOptions.Where(o => !o.IsLocked && !o.IsProceed))
+        var shownOptions = snapshot.EventOptions.Where(o => !o.IsLocked && !o.IsProceed).ToList();
+        var seen = new Dictionary<string, int>();
+        foreach (EventOptionSnapshot shown in shownOptions)
         {
+            // Options that share a text key (The Future of Potions offers one per potion) are numbered in the order shown: POTION_0, POTION_1, ...
             string key = shown.TextKey.Split('.').Last();
+            if (shownOptions.Count(o => o.TextKey == shown.TextKey) > 1)
+            {
+                int n = seen.GetValueOrDefault(key);
+                seen[key] = n + 1;
+                key = $"{key}_{n}";
+            }
             EventOptionDef? option = known.FirstOrDefault(o => o.Key == key);
             string label = shown.Title.Length > 0 ? shown.Title : key;
             if (option == null) { notes.Add($"Option {label} isn't modelled, so it isn't evaluated."); continue; }

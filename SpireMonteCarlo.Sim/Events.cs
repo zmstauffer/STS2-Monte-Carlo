@@ -27,8 +27,9 @@ public sealed class EventState
     public List<string> Potions { get; init; } = new();
     public int PotionSlots { get; set; } = 3;
 
-    /// <summary>Relics gained (the rollout applies their pickup effects) and combats to fight before moving on.</summary>
+    /// <summary>Relics gained (the rollout applies their pickup effects), relics given away, and combats to fight before moving on.</summary>
     public List<string> PendingRelics { get; } = new();
+    public List<string> RemovedRelics { get; } = new();
     public List<PendingFight> PendingFights { get; } = new();
 
     /// <summary>Effects the simulator doesn't model (enchantments, relics with no effect here), for reports.</summary>
@@ -245,13 +246,14 @@ public sealed class EventDef
 }
 
 /// <summary>
-/// The events of Act 1 (Overgrowth and Underdocks) and the shared events that can turn up there, written from the decompiled
+/// The events of Act 1 (Overgrowth and Underdocks) and the shared events that can turn up there (Act 2, Act 3 and the other shared
+/// events are in Events.Later.cs), written from the decompiled
 /// event classes (v0.111): the numbers, the conditions under which the game offers them, and what each option does. Multi-page
 /// events run a simple default continuation. Enchantments and a few relics have no effect in the simulator and are noted.
 /// </summary>
-public static class EventLibrary
+public static partial class EventLibrary
 {
-    private static readonly Dictionary<string, EventDef> ById = Build().ToDictionary(e => e.Id);
+    private static readonly Dictionary<string, EventDef> ById = Build().Concat(BuildLater()).ToDictionary(e => e.Id);
 
     public static EventDef? Find(string id) => ById.GetValueOrDefault(id);
 
@@ -262,6 +264,8 @@ public static class EventLibrary
     {
         "OVERGROWTH" => Overgrowth.Concat(Shared).ToList(),
         "UNDERDOCKS" => Underdocks.Concat(Shared).ToList(),
+        "HIVE" => Hive.Concat(Shared).ToList(),
+        "GLORY" => Glory.Concat(Shared).ToList(),
         _ => Shared,
     };
 
