@@ -87,6 +87,21 @@ public static class CardValueCommand
         return 0;
     }
 
+    /// <summary><c>sim synergy [--character C]</c>: each reward-pool card's enabler and payoff themes (see <see cref="Synergy"/>).</summary>
+    public static int Synergies(string[] args, SimData data)
+    {
+        RewardPool pool = data.PoolFor(Option(args, "--character") ?? "ironclad");
+        foreach (CardRarity rarity in Enum.GetValues<CardRarity>())
+            foreach (string id in pool.OfRarity(rarity))
+            {
+                CardDef c = data.Cards.Get(id, false);
+                string Tags(Func<CardDef, Theme, double> f) => string.Join(" ", Enum.GetValues<Theme>().Where(t => f(c, t) > 0).Select(t => $"{t}{(f(c, t) != 1 ? f(c, t).ToString("0.#") : "")}"));
+                string enables = Tags(Synergy.Enables), pays = Tags(Synergy.PaysOff);
+                if (enables.Length + pays.Length > 0) Console.WriteLine($"{id,-22} {rarity,-9} feeds: {enables,-28} pays off: {pays}");
+            }
+        return 0;
+    }
+
     /// <summary>1-based ranks, highest value first, ties averaged.</summary>
     private static List<double> Ranks(List<double> values)
     {

@@ -109,6 +109,10 @@ public static class AdviceEngine
     // tested against the same Act 2 fights) for Act 2 decisions.
     private const double Act3WinRate = 0.84, Act1DeckStrength = 0.50, Act2DeckStrength = 0.70, Act2HpShare = 0.9;
 
+    // For Act 1 decisions the Act 3 chance is judged on the deck after the next act's card picks (RolloutResult.DevelopedStrength),
+    // centred on its average (sim calibrate-run: DEVELOPED_MEAN below), so a card that the deck builds around counts for what it grows into.
+    private const double DevelopedDeckStrength = 0.60;
+
     // A card's worth later in the run, from real players' ratings: across 82 Ironclad cards in the A10 bracket each +100 Codex Elo goes
     // with +3.1 points of run win rate (r = 0.61). Part of that is stronger players picking better cards, so half of it is counted, measured
     // from the average Ironclad card (the regression's centre), and only for the share of the run after the current act. (It was first
@@ -134,7 +138,9 @@ public static class AdviceEngine
         if (act == 1)
         {
             double act2 = Logistic(NextActIntercept + StrengthSlope * s + HpSlope * hpShare);
-            double act3 = Logistic(Logit(Act3WinRate) + StrengthSlope * (s - Act1DeckStrength));
+            double act3 = double.IsNaN(r.DevelopedStrength)
+                ? Logistic(Logit(Act3WinRate) + StrengthSlope * (s - Act1DeckStrength))
+                : Logistic(Logit(Act3WinRate) + StrengthSlope * (r.DevelopedStrength - DevelopedDeckStrength));
             return act2 * act3;
         }
         return Logistic(Logit(Act3WinRate) + StrengthSlope * (s - Act2DeckStrength) + HpSlope * (hpShare - Act2HpShare));
@@ -166,11 +172,13 @@ public static class AdviceEngine
     {
         RewardPool pool = data.PoolFor(snapshot.Run.Character);
         var had = snapshot.Deck.GroupBy(c => c.Id).ToDictionary(g => g.Key, g => g.Count());
+        var current = snapshot.Deck.Select(c => data.Cards.Get(c.Id, c.Upgraded)).ToList();
         double average = RewardPool.DefaultElo, total = 0;
         foreach (CardDef c in optionDeck)
         {
             if (had.TryGetValue(c.Id, out int left) && left > 0) { had[c.Id] = left - 1; continue; }
-            if (pool.HasElo(c.Id)) total += LongTermPointsPerElo * (pool.Elo(c.Id) - average);
+            // How well it fits the deck counts too, as it does for the simulated player's picks (Synergy.Bonus).
+            if (pool.HasElo(c.Id)) total += LongTermPointsPerElo * (pool.Elo(c.Id) + Synergy.Bonus(c, current) - average);
         }
         return total * ShareAfterThisAct(snapshot.Run);
     }

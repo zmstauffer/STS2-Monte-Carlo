@@ -5,8 +5,12 @@ namespace SpireMonteCarlo.Sim;
 /// <summary>One fight of a rollout, HP in real (unscaled) points; HpLost is what the enemies took off (capped at the HP the player had), before any healing.</summary>
 public sealed record FightLogEntry(string Encounter, int HpBefore, int HpAfter, int DeckSize, int HpLost = 0, int Turns = 0);
 
-public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0, int DeckSize = 0, int UpgradedCards = 0, int Relics = 0, RolloutStart? End = null, double ProbeLoss = 0, int ProbeHpLost = 0)
+public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0, int DeckSize = 0, int UpgradedCards = 0, int Relics = 0, RolloutStart? End = null, double ProbeLoss = 0, int ProbeHpLost = 0,
+    int DevelopedFights = 0, double DevelopedLoss = 0)
 {
+    /// <summary>The deck test of the deck after the next act's card picks (<see cref="ActRollout.DevelopPicks"/>): what the deck grows into when it keeps building; NaN without one.</summary>
+    public double DevelopedStrength => DevelopedFights == 0 ? double.NaN : 1 - DevelopedLoss / DevelopedFights;
+
     /// <summary>How strong the end-of-act deck tested: 1 when the test fights cost nothing, 0 when every one was lost; NaN without a test.</summary>
     public double DeckStrength => ProbeFights == 0 ? double.NaN : 1 - ProbeLoss / ProbeFights;
 }
@@ -121,6 +125,13 @@ public sealed class ActRollout
     /// </summary>
     private static readonly HashSet<string> ProbeSkips = new() { "DECIMILLIPEDE_ELITE" };
 
+    /// <summary>
+    /// After an Act 1 boss, how many of the next act's card rewards (no fights) the deck picks from before its second deck test, and how
+    /// many upgrades it gets: a build (Dark Embrace, then exhaust cards) can't form in the rest of one act, so its worth only shows once the
+    /// deck keeps building. Act 2 has ~6 normal fights and ~2 elites a run, and ~2 rest-site upgrades.
+    /// </summary>
+    public const int DevelopPicks = 8, DevelopUpgrades = 2;
+
     /// <summary>How many elites the end-of-act deck fights in the deck test (plus one boss).</summary>
     public const int ProbeFightCount = 3;
 
@@ -185,6 +196,8 @@ public sealed class ActRollout
         return count == 0 ? double.NaN : lost / count;
     }
 
+    private CardDef LookUp(string id) => _data.Cards.Get(id, false);
+
     private static string DefaultVariant(int act) => act switch { 1 => "Overgrowth", 2 => "Hive", _ => "Glory" };
 
     /// <summary>True when the snapshot lists the actual upcoming encounters (otherwise they are sampled).</summary>
@@ -231,8 +244,8 @@ public sealed class ActRollout
 
         MapCoordinate at = _snap.Map.Current ?? StartPoint();
         string? diedTo = null;
-        int probeFights = 0, probeWins = 0, probeHpLost = 0;
-        double probeLoss = 0;
+        int probeFights = 0, probeWins = 0, probeHpLost = 0, developedFights = 0;
+        double probeLoss = 0, developedLoss = 0;
         RolloutStart? endState = null;
 
         var potions = start.Potions.Select(PotionLibrary.Find).OfType<PotionDef>().ToList();
@@ -417,7 +430,8 @@ public sealed class ActRollout
                 if (relic != null) { gold -= relic.Price; mawActive = false; stock.Remove(relic); Acquire(relic.Id, rng); continue; }
 
                 double bar = PickPolicy.SkipElo(deck.Count);
-                ShopItem? card = stock.Where(i => i.Kind == ShopKind.Card && i.Price <= gold && _pool.HasElo(i.Id) && _pool.Elo(i.Id) >= bar).OrderByDescending(i => _pool.Elo(i.Id)).FirstOrDefault();
+                double Want(ShopItem i) => _pool.Elo(i.Id) + Synergy.Bonus(LookUp(i.Id), deck);   // builds around the deck, like the reward picks
+                ShopItem? card = stock.Where(i => i.Kind == ShopKind.Card && i.Price <= gold && _pool.HasElo(i.Id) && Want(i) >= bar).OrderByDescending(Want).FirstOrDefault();
                 if (card != null) { gold -= card.Price; mawActive = false; stock.Remove(card); AddToDeck(card.Id); continue; }
 
                 ShopItem? potion = potions.Count < potionSlots && !Own(RelicKind.Sozu) ? stock.Where(i => i.Kind == ShopKind.Potion && i.Price <= gold).OrderByDescending(i => i.Price).FirstOrDefault() : null;
@@ -500,7 +514,34 @@ public sealed class ActRollout
 
         void Probe()
         {
-            if (_nextElitePool.Length == 0) return;
+            (probeFights, probeWins, probeLoss, probeHpLost) = TestFights(deck);
+            Develop();
+        }
+
+        // The next act's card picks (no fights) and a couple of upgrades, then the deck test again, for Act 1 decisions.
+        void Develop()
+        {
+            if (_snap.Run.Act != 1 || _nextElitePool.Length == 0) return;
+            var developed = deck.ToList();
+            var devRng = new SimRng(SimRng.Mix(seed, 0xDE7E));
+            var devOdds = new RarityOdds(_ascension);
+            for (int k = 0; k < DevelopPicks; k++)
+            {
+                string[] offer = _pool.GenerateOffer(k % 4 == 3 ? RewardKind.Elite : RewardKind.Normal, devOdds, devRng);
+                int pick = PickPolicy.Choose(offer, _pool, developed, LookUp, devRng);
+                if (pick >= 0) developed.Add(_data.Cards.Get(offer[pick], false));
+            }
+            for (int u = 0; u < DevelopUpgrades; u++)
+                if (CardChoices.BestToUpgrade(developed) is { UpgradedForm: not null } best)
+                    developed[developed.IndexOf(best)] = _data.Cards.Get(best.Id, true);
+            (developedFights, _, developedLoss, _) = TestFights(developed);
+        }
+
+        (int Fights, int Wins, double Loss, int HpLost) TestFights(List<CardDef> testDeck)
+        {
+            int probeFights = 0, probeWins = 0, probeHpLost = 0;
+            double probeLoss = 0;
+            if (_nextElitePool.Length == 0) return (0, 0, 0, 0);
             double rescale = ProbeHpScale / PlayerHpScale;
             int probeMax = (int)Math.Round(maxHp * rescale);
             var testRng = new SimRng(SimRng.Mix(seed, 0x9B0BE));
@@ -515,7 +556,7 @@ public sealed class ActRollout
                 ulong probeSeed = SimRng.Mix(seed, 0x9B0BE + (ulong)i + 1);
                 string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(probeSeed, 1)));
                 if (lineup.Any(m => !_data.Monsters.Contains(m))) continue;
-                FightResult r = FightSimulator.Run(deck, probeMax, probeMax, lineup.Select(_data.Monsters.Get), _ascension, probeSeed, _bot, altStarts: encounter.AltStarts,
+                FightResult r = FightSimulator.Run(testDeck, probeMax, probeMax, lineup.Select(_data.Monsters.Get), _ascension, probeSeed, _bot, altStarts: encounter.AltStarts,
                     services: _data.Services, potions: potions.ToList(), stakes: encounter.RoomType == "Boss" ? 2 : 1, relics: relics, hpScale: ProbeHpScale);
                 probeFights++;
                 int lost = r.Won ? Math.Min(r.HpLost, probeMax) : probeMax;
@@ -523,6 +564,7 @@ public sealed class ActRollout
                 probeHpLost += (int)Math.Round(lost / ProbeHpScale);
                 if (r.Won) probeWins++;
             }
+            return (probeFights, probeWins, probeLoss, probeHpLost);
         }
 
         bool Fight(string encounterId, RewardKind? reward)
@@ -627,12 +669,12 @@ public sealed class ActRollout
                     if (candyCombat && screen == 0 && _pool.RollPower(rewardRng, offer) is { } power) offer = offer.Append(power).ToArray();
                     bool upgraded = (Own(RelicKind.SilverCrucible) && Counter("CRUCIBLE") < 3) || (Own(RelicKind.LavaLamp) && flawless);
                     if (Own(RelicKind.SilverCrucible) && Counter("CRUCIBLE") < 3) AddCounter("CRUCIBLE", 1);
-                    int pick = PickPolicy.Choose(offer, _pool, deck.Count, rewardRng);
+                    int pick = PickPolicy.Choose(offer, _pool, deck, LookUp, rewardRng);
                     if (pick < 0 && Own(RelicKind.Driftwood))
                     {
                         // Nothing in the offer was worth taking: reroll it once.
                         offer = Own(RelicKind.DingyRug) ? _pool.GenerateOfferWithColorless(kind, rarity, rewardRng) : _pool.GenerateOffer(kind, rarity, rewardRng);
-                        pick = PickPolicy.Choose(offer, _pool, deck.Count, rewardRng);
+                        pick = PickPolicy.Choose(offer, _pool, deck, LookUp, rewardRng);
                     }
                     if (pick < 0 && Own(RelicKind.PaelsWing))
                     {
@@ -655,7 +697,7 @@ public sealed class ActRollout
                 {
                     var rares = new List<string>();
                     for (int i = 0; i < 3; i++) if (_pool.RollClass(CardRarity.Rare, rewardRng, rares) is { } rare) rares.Add(rare);
-                    int pick = PickPolicy.Choose(rares, _pool, deck.Count, rewardRng);
+                    int pick = PickPolicy.Choose(rares, _pool, deck, LookUp, rewardRng);
                     if (pick >= 0) AddToDeck(rares[pick]);
                 }
             }
@@ -733,7 +775,7 @@ public sealed class ActRollout
                             if (Own(RelicKind.DreamCatcher))
                             {
                                 string[] dream = _pool.GenerateOffer(RewardKind.Normal, rarity, pathRng);
-                                int dreamPick = PickPolicy.Choose(dream, _pool, deck.Count, pathRng);
+                                int dreamPick = PickPolicy.Choose(dream, _pool, deck, LookUp, pathRng);
                                 if (dreamPick >= 0) AddToDeck(dream[dreamPick]);
                             }
                             if (Own(RelicKind.TinyMailbox) && !Own(RelicKind.Sozu))
@@ -787,7 +829,7 @@ public sealed class ActRollout
         // Ran out of map without meeting a boss node (shouldn't happen): count it as reaching the end.
         return Result(true);
 
-        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins, deck.Count, deck.Count(c => c.Upgraded), relics.Count, endState, probeLoss, probeHpLost);
+        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins, deck.Count, deck.Count(c => c.Upgraded), relics.Count, endState, probeLoss, probeHpLost, developedFights, developedLoss);
 
         int Real(int scaled) => (int)Math.Round(scaled / PlayerHpScale);
     }

@@ -16,6 +16,7 @@ public static class SimCommands
             case "fight": return Fight(args.Skip(1).ToArray());
             case "bench": return Load() is { } benchData ? TuneCommand.Bench(args.Skip(1).ToArray(), benchData) : 1;
             case "tune": return Load() is { } tuneData ? TuneCommand.Tune(args.Skip(1).ToArray(), tuneData) : 1;
+            case "synergy": return Load() is { } syData ? CardValueCommand.Synergies(args.Skip(1).ToArray(), syData) : 1;
             case "cardvalue": return Load() is { } cvData ? CardValueCommand.Run(args.Skip(1).ToArray(), cvData) : 1;
             case "fitleaf": return Load() is { } fitData ? FitLeafCommand.Run(args.Skip(1).ToArray(), fitData) : 1;
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
@@ -215,6 +216,9 @@ public static class SimCommands
         Console.WriteLine($"At the end: deck {results.Average(r => r.DeckSize):F1} cards, {results.Average(r => r.UpgradedCards):F1} upgraded, {results.Average(r => r.Relics):F1} relics that do something");
         var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
         if (probed.Count > 0) Console.WriteLine($"Deck test (3 Act 2 elites and an Act 2 boss, each from full HP), runs that reached it: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won, {(double)probed.Sum(r => r.ProbeHpLost) / probed.Sum(r => r.ProbeFights):F1} HP lost per fight, strength {probed.Average(r => r.DeckStrength):F2} (sd {Math.Sqrt(probed.Average(r => r.DeckStrength * r.DeckStrength) - Math.Pow(probed.Average(r => r.DeckStrength), 2)):F2})");
+        var developed = probed.Where(r => !double.IsNaN(r.DevelopedStrength)).ToList();
+        if (developed.Count > 0)
+            Console.WriteLine($"After the next act's card picks ({ActRollout.DevelopPicks} picks, {ActRollout.DevelopUpgrades} upgrades): deck strength {developed.Average(r => r.DevelopedStrength):F2} (sd {Math.Sqrt(developed.Average(r => r.DevelopedStrength * r.DevelopedStrength) - Math.Pow(developed.Average(r => r.DevelopedStrength), 2)):F2})");
         Console.WriteLine($"Fights per run: normal {PerRun("Monster"):F1} (real {realFights.GetValueOrDefault("monster") / realBoss:F1}), elite {PerRun("Elite"):F1} (real {realFights.GetValueOrDefault("elite") / realBoss:F1})");
         var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());
         var lost = results.SelectMany(r => r.Log).GroupBy(l => l.Encounter).ToDictionary(g => g.Key, g => (Dmg: g.Average(l => (double)l.HpLost), Turns: g.Average(l => (double)l.Turns)));

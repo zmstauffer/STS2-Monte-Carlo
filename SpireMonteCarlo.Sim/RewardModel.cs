@@ -167,6 +167,27 @@ public static class PickPolicy
 
     public static double Weight(double elo) => Math.Pow(10, elo / 400.0);
 
+    /// <summary>
+    /// A pick that builds around the deck: each offered card's Elo gets <see cref="Synergy.Bonus"/> for how well it fits
+    /// <paramref name="deck"/> (<paramref name="card"/> looks card ids up). Index into <paramref name="offer"/>, or -1 to skip.
+    /// </summary>
+    public static int Choose(IReadOnlyList<string> offer, RewardPool pool, IReadOnlyList<CardDef> deck, Func<string, CardDef> card, SimRng rng)
+    {
+        // Skip rises with the offer's average fit, so fit reorders the cards without changing how often rewards are skipped (the skip
+        // rule is fit to real skip rates; lifting every card over it made the simulated decks grow ~2 cards an act).
+        double[] bonus = offer.Select(id => Synergy.Bonus(card(id), deck)).ToArray();
+        double total = Weight(SkipElo(deck.Count) + (bonus.Length == 0 ? 0 : bonus.Average()));
+        var weights = new double[offer.Count];
+        for (int i = 0; i < offer.Count; i++) total += weights[i] = Weight(pool.Elo(offer[i]) + bonus[i]);
+        double roll = rng.NextDouble() * total;
+        for (int i = 0; i < offer.Count; i++)
+        {
+            roll -= weights[i];
+            if (roll < 0) return i;
+        }
+        return -1;
+    }
+
     /// <returns>Index into <paramref name="offer"/>, or -1 to skip.</returns>
     public static int Choose(IReadOnlyList<string> offer, RewardPool pool, int deckSize, SimRng rng)
     {

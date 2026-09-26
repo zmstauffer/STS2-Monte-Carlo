@@ -657,6 +657,24 @@ public sealed class BasicBot
         };
     }
 
+    /// <summary>A card drawn and a point of block, in the leaf's rough HP units (a draw is about what a dead card costs, sim cardvalue).</summary>
+    private const double DrawWorth = 1.5, BlockWorth = 0.7;
+
+    /// <summary>
+    /// How often this deck does something per turn (cards that exhaust, lose HP, apply Vulnerable, gain block or are Strikes, per card
+    /// drawn, times five draws). Powers that trigger on it (Dark Embrace, Feel No Pain, Rupture, Vicious, Juggernaut, Hellraiser) are worth
+    /// that rate times the turns left: fixed values made the bot spend 2 energy on Dark Embrace in decks that rarely exhaust (worse than
+    /// a dead card in sim cardvalue) and undervalue it in decks built around it.
+    /// </summary>
+    private static double ThemeRate(Combat combat, Theme theme)
+    {
+        double total = 0;
+        int n = 0;
+        foreach (var pile in new[] { combat.DrawPile, combat.DiscardPile, combat.Hand })
+            foreach (CardDef c in pile) { total += Synergy.Enables(c, theme); n++; }
+        return n == 0 ? 0 : 5.0 * total / n;
+    }
+
     /// <summary>What a power is worth to have from now on, in the same rough units as damage dealt.</summary>
     private double PowerValue(Combat combat, PowerKind power, int amount)
     {
@@ -676,19 +694,19 @@ public sealed class BasicBot
             PowerKind.CrimsonMantle => amount * turnsLeft * 0.4 - turnsLeft * 0.8,
             PowerKind.CrimsonSelfDamage or PowerKind.InfernoSelfDamage => 0,
             PowerKind.Cruelty => 4,
-            PowerKind.DarkEmbrace => 8,
+            PowerKind.DarkEmbrace => ThemeRate(combat, Theme.Exhaust) * turnsLeft * amount * DrawWorth,
             PowerKind.DemonForm => amount * turnsLeft * 0.9,
-            PowerKind.FeelNoPain => amount * 2.5,
-            PowerKind.Hellraiser => 8,
+            PowerKind.FeelNoPain => ThemeRate(combat, Theme.Exhaust) * turnsLeft * amount * BlockWorth,
+            PowerKind.Hellraiser => ThemeRate(combat, Theme.Strike) * turnsLeft * 4,
             PowerKind.Inferno => amount * 1.2,
-            PowerKind.Juggernaut => amount * 1.5,
+            PowerKind.Juggernaut => ThemeRate(combat, Theme.Block) * turnsLeft * amount * 0.8,
             PowerKind.Juggling => 6,
             PowerKind.Pyre => amount * turnsLeft * 1.2,
             PowerKind.Rage => amount * 2.5,
-            PowerKind.Rupture => amount * 4,
+            PowerKind.Rupture => ThemeRate(combat, Theme.SelfDamage) * turnsLeft * amount * Tuning.Strength * 0.5,
             PowerKind.Stampede => 8,
             PowerKind.Unmovable => 6,
-            PowerKind.Vicious => amount * 3,
+            PowerKind.Vicious => ThemeRate(combat, Theme.Vulnerable) * turnsLeft * amount * DrawWorth,
             PowerKind.Aggression => 8,
             PowerKind.Colossus => amount * 4,
             PowerKind.FlameBarrier => amount * Math.Max(1, combat.Enemies.Count(e => e.Alive && combat.IntendsAttack(e))) * 1.5,
