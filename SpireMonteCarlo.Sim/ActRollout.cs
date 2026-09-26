@@ -2,7 +2,8 @@ using SpireMonteCarlo.Contracts;
 
 namespace SpireMonteCarlo.Sim;
 
-public sealed record FightLogEntry(string Encounter, int HpBefore, int HpAfter, int DeckSize);
+/// <summary>One fight of a rollout, HP in real (unscaled) points; HpLost is what the enemies took off (capped at the HP the player had), before any healing.</summary>
+public sealed record FightLogEntry(string Encounter, int HpBefore, int HpAfter, int DeckSize, int HpLost = 0, int Turns = 0);
 
 public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0);
 
@@ -286,7 +287,7 @@ public sealed class ActRollout
             int hpBefore = hp;
             int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
             FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes, relics: relics, hpScale: PlayerHpScale);
-            log.Add(new FightLogEntry(encounterId, Real(hpBefore), result.Won ? Real(result.HpAfter) : 0, deck.Count));
+            log.Add(new FightLogEntry(encounterId, Real(hpBefore), result.Won ? Real(result.HpAfter) : 0, deck.Count, Real(Math.Min(result.HpLost, hpBefore)), result.Turns));
             if (!result.Won) { diedTo = encounterId; hp = 0; return false; }
 
             won++;

@@ -209,13 +209,14 @@ public static class SimCommands
         if (probed.Count > 0) Console.WriteLine($"Act 2 elite probe (3 fights from the post-boss HP), runs that reached it: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won");
         Console.WriteLine($"Fights per run: normal {PerRun("Monster"):F1} (real {realFights.GetValueOrDefault("monster") / realBoss:F1}), elite {PerRun("Elite"):F1} (real {realFights.GetValueOrDefault("elite") / realBoss:F1})");
         var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());
-        Console.WriteLine($"{"encounter",-32} {"room",-8} {"fights",7} {"sim fatal%",11} {"real fatal%",12}");
+        var lost = results.SelectMany(r => r.Log).GroupBy(l => l.Encounter).ToDictionary(g => g.Key, g => (Dmg: g.Average(l => (double)l.HpLost), Turns: g.Average(l => (double)l.Turns)));
+        Console.WriteLine($"{"encounter",-32} {"room",-8} {"fights",7} {"sim fatal%",11} {"real fatal%",12} {"sim dmg",8} {"real dmg",9} {"sim turns",10} {"real turns",11}");
         foreach (var (id, count) in fights.OrderByDescending(kv => kv.Value))
         {
             if (count < n / 40 || !data.Encounters.Contains(id)) continue;
             CodexCharacterStat? real = stats.TryGetValue(id, out CodexEncounterStat? s) ? s.Characters.FirstOrDefault(c => c.Character == "IRONCLAD") : null;
             double simFatal = 100.0 * deaths.GetValueOrDefault(id) / count;
-            Console.WriteLine($"{id,-32} {data.Encounters.Get(id).RoomType,-8} {count,7} {simFatal,11:F1} {(real == null ? "" : (100.0 * real.Fatal / real.Total).ToString("F1")),12}");
+            Console.WriteLine($"{id,-32} {data.Encounters.Get(id).RoomType,-8} {count,7} {simFatal,11:F1} {(real == null ? "" : (100.0 * real.Fatal / real.Total).ToString("F1")),12} {lost[id].Dmg,8:F1} {real?.AvgDamage ?? 0,9:F1} {lost[id].Turns,10:F1} {real?.AvgTurns ?? 0,11:F1}");
         }
         Console.WriteLine();
         Console.WriteLine("By fight number (all rollouts that reached it):   HP before   HP lost   deck size   alive");

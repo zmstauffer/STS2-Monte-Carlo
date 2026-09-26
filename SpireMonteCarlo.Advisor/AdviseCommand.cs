@@ -66,6 +66,10 @@ public static class AdviseCommand
         else
             Console.WriteLine($"Suggestion: {best.Label}. It survives the act {100 * best.SurvivalRate:F1}% of the time versus {100 * baseline.SurvivalRate:F1}% for \"{report.BaselineLabel}\", ending with about {best.MeanHpEnd:F0} HP versus {baseline.MeanHpEnd:F0}.");
 
+        Console.WriteLine();
+        Console.WriteLine("Why:");
+        foreach (string line in Explainer.Explain(report)) Console.WriteLine($"  - {line}");
+        Console.WriteLine();
         if (baseline.Killers.Count > 0)
             Console.WriteLine($"Where runs die with \"{report.BaselineLabel}\": {string.Join(", ", baseline.Killers.Select(k => $"{k.Encounter} x{k.Count}"))}");
         foreach (string note in report.Notes) Console.WriteLine($"Note: {note}");

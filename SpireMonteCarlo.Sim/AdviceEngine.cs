@@ -29,6 +29,16 @@ public sealed class OptionReport
     public double DeltaValue { get; init; }
     public double DeltaValueSe { get; init; }
 
+    /// <summary>Share of futures that ended in a death in a normal fight, an elite fight, and a boss fight.</summary>
+    public double NormalDeathRate { get; init; }
+    public double EliteDeathRate { get; init; }
+    public double BossDeathRate { get; init; }
+
+    /// <summary>Average HP lost per fight of each kind (real points, before healing), over the fights that were reached.</summary>
+    public double NormalHpLost { get; init; }
+    public double EliteHpLost { get; init; }
+    public double BossHpLost { get; init; }
+
     /// <summary>Which encounters ended the runs that died, most common first.</summary>
     public IReadOnlyList<(string Encounter, int Count)> Killers { get; init; } = Array.Empty<(string, int)>();
 
@@ -97,6 +107,13 @@ public static class AdviceEngine
                 results[j][i] = rollout.Run(options[j].Start, rolloutSeed);
         });
 
+        double DeathRate(RolloutResult[] rs, string room) => rs.Count(r => r.DiedTo != null && RoomOf(data, r.DiedTo) == room) / (double)rs.Length;
+        double HpLostPerFight(RolloutResult[] rs, string room)
+        {
+            var fights = rs.SelectMany(r => r.Log).Where(l => RoomOf(data, l.Encounter) == room).ToList();
+            return fights.Count == 0 ? 0 : fights.Average(l => (double)l.HpLost);
+        }
+
         double[] skipValues = results[0].Select(ValueOf).ToArray();
         double[] skipSurvived = results[0].Select(r => r.Survived ? 1.0 : 0.0).ToArray();
         double[] skipHp = results[0].Select(r => (double)r.HpEnd).ToArray();
@@ -128,6 +145,8 @@ public static class AdviceEngine
                 DeltaSurvival = dSurv, DeltaSurvivalSe = dSurvSe,
                 DeltaHp = dHp, DeltaHpSe = dHpSe,
                 DeltaValue = dValue, DeltaValueSe = dValueSe,
+                NormalDeathRate = DeathRate(rs, "Monster"), EliteDeathRate = DeathRate(rs, "Elite"), BossDeathRate = DeathRate(rs, "Boss"),
+                NormalHpLost = HpLostPerFight(rs, "Monster"), EliteHpLost = HpLostPerFight(rs, "Elite"), BossHpLost = HpLostPerFight(rs, "Boss"),
                 Killers = rs.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).OrderByDescending(g => g.Count()).Take(3).Select(g => (g.Key, g.Count())).ToList(),
             });
         }
@@ -145,6 +164,8 @@ public static class AdviceEngine
             UnknownCards = data.Cards.UnknownIds.ToList(),
         };
     }
+
+    private static string RoomOf(SimData data, string encounter) => data.Encounters.Contains(encounter) ? data.Encounters.Get(encounter).RoomType : "";
 
     /// <summary>Mean of (a - b) over paired samples and its standard error.</summary>
     private static (double Mean, double StandardError) PairedDifference(double[] a, double[] b)
