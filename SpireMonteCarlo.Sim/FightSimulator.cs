@@ -185,7 +185,7 @@ public static class FightSimulator
     }
 
     /// <summary>Plans the turn and carries the plan out, planning again whenever a draw or generated card changes the hand.</summary>
-    private static void PlayTurn(Combat combat, BasicBot bot, Action<string>? trace)
+    public static void PlayTurn(Combat combat, BasicBot bot, Action<string>? trace = null)
     {
         int actions = 0;
         while (combat.Result == CombatResult.Ongoing && actions < MaxActionsPerTurn)

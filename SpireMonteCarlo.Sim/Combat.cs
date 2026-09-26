@@ -416,8 +416,8 @@ public sealed partial class Combat
         if (PlayerPowers[(int)PowerKind.Buffer] > 0) { PlayerPowers[(int)PowerKind.Buffer]--; return; }
         amount = RelicReduceHpLoss(amount);
         if (amount <= 0) return;
+        HpLost += Math.Min(amount, Math.Max(0, Hp));   // overkill isn't HP lost: a death costs what was left
         Hp -= amount;
-        HpLost += amount;
         _timesHurt++;
         if (Hp <= 0 && !TryRevive()) Result = CombatResult.Lost;
         RelicAfterHpLost(amount);

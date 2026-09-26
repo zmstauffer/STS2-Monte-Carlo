@@ -16,6 +16,7 @@ public static class SimCommands
             case "fight": return Fight(args.Skip(1).ToArray());
             case "bench": return Load() is { } benchData ? TuneCommand.Bench(args.Skip(1).ToArray(), benchData) : 1;
             case "tune": return Load() is { } tuneData ? TuneCommand.Tune(args.Skip(1).ToArray(), tuneData) : 1;
+            case "fitleaf": return Load() is { } fitData ? FitLeafCommand.Run(args.Skip(1).ToArray(), fitData) : 1;
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
             case "calibrate-run": return CalibrateRun(args.Skip(1).ToArray());
             case "rewards": return Rewards(args.Skip(1).ToArray());

@@ -81,13 +81,16 @@ public sealed class ActRollout
     // 1.7 gives 64% Act 1 survival, 1.72 about 65% (real ~65%), 1.9 gives 74%. It was 2.5 with the older bot, so about a third of the old fudge was bot play.
     // Per fight the sim now matches real weak-fight damage but is lighter in elites and normal fights and still too lethal in bosses
     // (deaths split 3% normal / 12% elite / 21% boss against roughly 25/35/40% real), so the scale still hides unmodelled resources.
-    public const double CalibratedPlayerHpScale = 1.72;
+    // Re-fit again after the content sweep (every relic and potion, colorless/event cards, enchantments) and the regression-fit leaf weights:
+    // 1.55 gives 62.5%, 1.58 63-65%, 1.6 66% Act 1 survival (real ~65%).
+    public const double CalibratedPlayerHpScale = 1.59;
 
     // Act 2, for the runs that beat Act 1 (sim calibrate-run --maps 200 --act2): at 3.4 Act 2 survival is 57%, at 3.7 64%, at 4.0 68% (real ~61%).
     // The Decimillipede (26% vs 12% real), Insatiable (27% vs 16%) and Knowledge Demon (27% vs 20%) stay too lethal at any scale (the bot
     // can't line up the Decimillipede's segments, and the simulated decks are weaker than real Act 2 decks); Kaiser Crab (8% vs 24%) and the
     // Prisms are too easy. There is no Act 3 content yet.
-    public const double CalibratedPlayerHpScaleAct2 = 3.5;
+    // After the content sweep and the fitted leaf weights: 3.2 gives 59%, 3.5 63% (real ~61%).
+    public const double CalibratedPlayerHpScaleAct2 = 3.35;
 
     /// <summary>
     /// The HP scale used in the next-act probe. Act 2 enemies hit harder than the Act 1 scale can absorb for a deck that has

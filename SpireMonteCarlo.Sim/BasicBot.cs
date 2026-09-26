@@ -13,6 +13,14 @@ public readonly record struct BotAction(int Tag, string? PotionId, int Target)
 /// right now (damage after modifiers, kills, block actually needed, debuffs worth applying, buffs, draw, energy). It is not an
 /// exhaustive search, and cards it can't see yet (draws) end a plan, after which it plans again. Stateless, so many fights can share one.
 /// </summary>
+/// <summary>Indexes of the terms the leaf value adds up (see <c>BasicBot.LeafValue</c>).</summary>
+public static class LeafFeatures
+{
+    public const int Lost = 0, Future = 1, Progress = 2, Drawn = 3, ReplanEnergy = 4, PowerGain = 5, WastedEnergy = 6, EnemyWeak = 7, EnemyVulnerable = 8,
+        EnemiesAlive = 9, ExhaustedJunk = 10, ExhaustedCards = 11, PlayerDebuffs = 12, SelfDamage = 13, Count = 14;
+    public static readonly string[] Names = { "Lost", "Future", "Progress", "Drawn", "ReplanEnergy", "PowerGain", "WastedEnergy", "EnemyWeak", "EnemyVulnerable", "EnemiesAlive", "ExhaustedJunk", "ExhaustedCards", "PlayerDebuffs", "SelfDamage" };
+}
+
 public sealed class BasicBot
 {
     public const double MinScoreToPlay = 0.75;
@@ -70,6 +78,7 @@ public sealed class BasicBot
         }
 
         private readonly List<(List<BotAction> Path, Combat State, double Cheap)> _visited = new();
+        public IReadOnlyList<(List<BotAction> Path, Combat State, double Cheap)> Visited => _visited;
 
         public void Run()
         {
@@ -138,16 +147,35 @@ public sealed class BasicBot
     /// <summary>Leaf mode: what stopping the turn in <paramref name="state"/> is worth. Plays out the enemy phase on a copy, then prices what is left: the HP lost now, plus each enemy's remaining HP at the rate its attacks cost us per point of damage we can deal.</summary>
     private double LeafValue(Combat root, Combat state, ulong salt, bool deep, int plays)
     {
+        Span<double> f = stackalloc double[LeafFeatures.Count];
+        return LeafValue(root, state, salt, deep, plays, f, out _);
+    }
+
+    /// <summary>Research: the leaf value of a plan's end state with its terms (<see cref="LeafFeatures"/>); <paramref name="terminal"/> is true when the fight ended by then and the terms don't apply.</summary>
+    public double LeafValue(Combat root, Combat state, bool deep, int plays, Span<double> features, out bool terminal) =>
+        LeafValue(root, state, 0xC0FFEEUL + (ulong)root.Turn * 7919UL, deep, plays, features, out terminal);
+
+    private double LeafValue(Combat root, Combat state, ulong salt, bool deep, int plays, Span<double> f, out bool terminal)
+    {
+        f.Clear();
+        terminal = true;
         // Cards drawn this turn (by Shrug It Off, Battle Trance, Pommel Strike, ...) cycle the deck and give options later; the search can't play them now.
         int drawn = Math.Max(0, state.Hand.Count - root.Hand.Count + plays);
-        double powers = Tuning.DrawValue * drawn * (state.Energy > 0 ? 1.0 : 0.6);
+        f[LeafFeatures.Drawn] = drawn * (state.Energy > 0 ? 1.0 : 0.6);
         // A plan that ends on a draw is planned again with the new cards, so the energy it leaves is not wasted.
-        if (state.Hand.Any(c => c.Tag == 0)) powers += Tuning.ReplanEnergy * state.Energy;
+        if (state.Hand.Any(c => c.Tag == 0)) f[LeafFeatures.ReplanEnergy] = state.Energy;
+        else f[LeafFeatures.WastedEnergy] = state.Energy;
         foreach (PowerKind kind in Enum.GetValues<PowerKind>())
         {
             int gained = state.PlayerPowers[(int)kind] - root.PlayerPowers[(int)kind];
-            if (gained > 0 && PowerRules.IsPermanentBuff(kind)) powers += PowerValue(state, kind, gained) * Tuning.PowerGain;
+            if (gained > 0 && PowerRules.IsPermanentBuff(kind)) f[LeafFeatures.PowerGain] += PowerValue(state, kind, gained);
         }
+        for (int i = root.ExhaustPile.Count; i < state.ExhaustPile.Count; i++)
+            if (state.ExhaustPile[i].Kind is CardKind.Status or CardKind.Curse) f[LeafFeatures.ExhaustedJunk]++;
+            else f[LeafFeatures.ExhaustedCards]++;
+        f[LeafFeatures.SelfDamage] = Math.Max(0, root.Hp - state.Hp);
+        double powers = Tuning.DrawValue * f[LeafFeatures.Drawn] + Tuning.ReplanEnergy * f[LeafFeatures.ReplanEnergy] + Tuning.PowerGain * f[LeafFeatures.PowerGain]
+            + Tuning.SelfDamage * f[LeafFeatures.SelfDamage] + Tuning.ExhaustedJunk * f[LeafFeatures.ExhaustedJunk] + Tuning.ExhaustedCards * f[LeafFeatures.ExhaustedCards];
         if (state.Result == CombatResult.Won) return powers + 50;
         Combat c = state.Clone(salt);
         int hpBefore = c.Hp;
@@ -155,6 +183,8 @@ public sealed class BasicBot
         if (c.Result == CombatResult.Lost) return -100000;
         double lost = hpBefore - c.Hp;
         if (c.Result == CombatResult.Won) return powers + 50 - Tuning.LostWeight * lost;
+        terminal = false;
+        f[LeafFeatures.Lost] = lost;
         // How hard the enemies will hit over the next few turns if we did nothing: this sees Ritual-style growth and charge-up turns.
         int horizon = deep ? (int)Math.Max(1, Tuning.Horizon) : 1;
         var perEnemy = new Dictionary<int, double>();
@@ -191,6 +221,9 @@ public sealed class BasicBot
             if (e.Powers[(int)PowerKind.Infested] > 0) { effective += 80; threat += 12 * scale; }
             else if (e.Powers[(int)PowerKind.Surprise] > 0 || e.Def.Innate.Any(p => p.Power == PowerKind.Surprise)) { effective += 45; threat += 10 * scale; }
             threats.Add((threat, Math.Max(1, effective)));
+            f[LeafFeatures.EnemiesAlive]++;
+            if (attacks.Count > 0) f[LeafFeatures.EnemyWeak] += Math.Min(3, e.Powers[(int)PowerKind.Weak]);
+            f[LeafFeatures.EnemyVulnerable] += Math.Min(3, vulnerable);
         }
         threats.Sort((a, b) => (b.Threat / b.Hp).CompareTo(a.Threat / a.Hp));
         double cumulative = 0, future = 0;
@@ -199,10 +232,27 @@ public sealed class BasicBot
             cumulative += hp;
             future += threat * cumulative / Tuning.Dpt;
         }
+        f[LeafFeatures.Future] = future;
+        f[LeafFeatures.Progress] = progress;
+        foreach (PowerKind debuff in new[] { PowerKind.Weak, PowerKind.Frail, PowerKind.Vulnerable })
+            f[LeafFeatures.PlayerDebuffs] += Math.Min(3, c.PlayerPowers[(int)debuff]);
         // The Insatiable's Sandpit ends the run when its countdown reaches 0; every point of margin is worth a lot when it is short.
         int sand = c.PlayerPowers[(int)PowerKind.Sandpit];
         double sandpit = sand <= 0 ? 0 : 300 * Math.Pow(0.35, sand - 1);
-        return powers - Tuning.LostWeight * lost - future - Tuning.Progress * progress - sandpit;
+        return powers - Tuning.LostWeight * lost - Tuning.FutureWeight * future - Tuning.Progress * progress - sandpit
+            + Tuning.WastedEnergy * f[LeafFeatures.WastedEnergy] + Tuning.EnemyWeak * f[LeafFeatures.EnemyWeak] + Tuning.EnemyVulnerable * f[LeafFeatures.EnemyVulnerable]
+            + Tuning.EnemiesAlive * f[LeafFeatures.EnemiesAlive] + Tuning.PlayerDebuffs * f[LeafFeatures.PlayerDebuffs];
+    }
+
+    /// <summary>Research: the plans the leaf search considered for this turn (path and end state), without potions.</summary>
+    public List<(List<BotAction> Path, Combat State)> CandidatePlans(Combat combat)
+    {
+        foreach (var pile in new[] { combat.DrawPile, combat.Hand, combat.DiscardPile, combat.ExhaustPile })
+            foreach (CardDef c in pile) c.Tag = 0;
+        for (int i = 0; i < combat.Hand.Count; i++) combat.Hand[i].Tag = i + 1;
+        var search = new PlanSearch(this, combat, danger: false, lethal: false);
+        search.Run();
+        return search.Visited.Where(v => v.Path.All(a => !a.IsPotion)).Select(v => (v.Path, v.State)).ToList();
     }
 
     /// <summary>Carries out one planned action on a combat (a copy while planning, the real one when playing). False if it can't be done.</summary>

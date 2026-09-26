@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace SpireMonteCarlo.Sim;
 
-/// <summary>The bot's valuation weights in one place, so <c>advisor sim tune</c> can search for better ones. The defaults are what the bot ships with.</summary>
+/// <summary>The bot's valuation weights in one place, so <c>advisor sim tune</c> can search for better ones. The defaults are what the bot ships with; the leaf-mode weights were fit by <c>advisor sim fitleaf</c> (two rounds, Ironclad bench fights).</summary>
 public sealed class BotTuning
 {
     /// <summary>Value of one point of damage that reaches an enemy's HP (the unit everything else is measured in).</summary>
@@ -34,17 +34,35 @@ public sealed class BotTuning
     /// <summary>Leaf mode: the least threat an enemy counts for, as a share of the damage its average attack move deals.</summary>
     public double BaseThreat = 0.6;
     /// <summary>Leaf mode: value of each point of enemy HP removed even when nothing it does hurts us, so plans still push the fight along.</summary>
-    public double Progress = 0.2;
+    public double Progress = 0.23;
     /// <summary>Leaf mode: how many of the best plans (by the cheap one-turn judgement) are judged again looking several turns ahead.</summary>
     public double Finalists = 4;
     /// <summary>Leaf mode: value of each card drawn during the plan (it cycles the deck and gives choices in later turns).</summary>
-    public double DrawValue = 6;
+    public double DrawValue = 0.65;
     /// <summary>Leaf mode: value of each energy left when a plan stops at a draw (the turn is planned again with the new cards and will spend it).</summary>
-    public double ReplanEnergy = 8;
+    public double ReplanEnergy = 11.2;
     /// <summary>Leaf mode: how much an HP lost this turn counts against the plan compared with HP the enemies will cost later.</summary>
-    public double LostWeight = 1.0;
+    public double LostWeight = 1.5;
     /// <summary>Leaf mode: weight on the value of powers gained this turn.</summary>
-    public double PowerGain = 1.0;
+    public double PowerGain = 1.02;
+    /// <summary>Leaf mode: weight on the enemies' future cost (their threat times the turns until they die).</summary>
+    public double FutureWeight = 1.03;
+    /// <summary>Leaf mode: value of each energy left unspent when the turn ends (fit by <c>sim fitleaf</c>).</summary>
+    public double WastedEnergy = -2.27;
+    /// <summary>Leaf mode: value of each Weak stack (up to 3) on an attacking enemy after its turn.</summary>
+    public double EnemyWeak = 0;
+    /// <summary>Leaf mode: value of each Vulnerable stack (up to 3) on an enemy after its turn, on top of the effective-HP discount.</summary>
+    public double EnemyVulnerable = 1.36;
+    /// <summary>Leaf mode: value of each enemy still alive after its turn.</summary>
+    public double EnemiesAlive = -3.14;
+    /// <summary>Leaf mode: value of each status or curse exhausted this turn.</summary>
+    public double ExhaustedJunk = 1.0;
+    /// <summary>Leaf mode: value of each other card exhausted this turn.</summary>
+    public double ExhaustedCards = 3.78;
+    /// <summary>Leaf mode: value of each Weak/Frail/Vulnerable stack (up to 3 each) on the player after the enemies' turn.</summary>
+    public double PlayerDebuffs = -2.16;
+    /// <summary>Leaf mode: value of each HP the plan itself costs (Bloodletting, Offering, ...).</summary>
+    public double SelfDamage = -2.1;
 
     public static BotTuning Default { get; } = FromEnvironment();
 

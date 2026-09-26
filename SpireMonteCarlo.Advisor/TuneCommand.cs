@@ -7,23 +7,23 @@ namespace SpireMonteCarlo.Advisor;
 /// <summary>Scores the combat bot on a fixed suite of Act 1 fights (<c>sim bench</c>) and searches for better valuation weights (<c>sim tune</c>). Lower is better: HP lost, with deaths counted extra.</summary>
 public static class TuneCommand
 {
-    private static readonly (string Name, string Deck)[] Decks =
+    internal static readonly (string Name, string Deck)[] Decks =
     {
         ("starter", "STRIKE_IRONCLAD*5,DEFEND_IRONCLAD*4,BASH"),
         ("mid", "STRIKE_IRONCLAD*5,DEFEND_IRONCLAD*4,BASH,POMMEL_STRIKE,SHRUG_IT_OFF,INFLAME,ANGER,TRUE_GRIT,IRON_WAVE,THUNDERCLAP"),
         ("built", "STRIKE_IRONCLAD*3,DEFEND_IRONCLAD*4,BASH+,POMMEL_STRIKE+,SHRUG_IT_OFF,INFLAME,ANGER,IRON_WAVE,THUNDERCLAP,HEADBUTT,BATTLE_TRANCE,WHIRLWIND,FLAME_BARRIER,TWIN_STRIKE"),
     };
 
-    private static readonly string[] Normals =
+    internal static readonly string[] Normals =
     {
         "TOADPOLES_WEAK", "SLIMES_WEAK", "NIBBITS_WEAK", "SEAPUNK_WEAK", "CORPSE_SLUGS_WEAK", "SLUDGE_SPINNER_WEAK", "FUZZY_WURM_CRAWLER_WEAK", "SHRINKER_BEETLE_WEAK",
         "MAWLER_NORMAL", "CULTISTS_NORMAL", "RUBY_RAIDERS_NORMAL", "GREMLIN_MERC_NORMAL", "SLIMES_NORMAL", "FLYCONID_NORMAL", "HAUNTED_SHIP_NORMAL", "TWO_TAILED_RATS_NORMAL",
     };
-    private static readonly string[] Elites =
+    internal static readonly string[] Elites =
     {
         "PHROG_PARASITE_ELITE", "BYGONE_EFFIGY_ELITE", "TERROR_EEL_ELITE", "PHANTASMAL_GARDENERS_ELITE", "BYRDONIS_ELITE", "SKULKING_COLONY_ELITE",
     };
-    private static readonly string[] Bosses =
+    internal static readonly string[] Bosses =
     {
         "THE_KIN_BOSS", "CEREMONIAL_BEAST_BOSS", "VANTOM_BOSS", "WATERFALL_GIANT_BOSS", "SOUL_FYSH_BOSS", "LAGAVULIN_MATRIARCH_BOSS",
     };
