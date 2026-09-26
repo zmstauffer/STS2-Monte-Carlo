@@ -30,6 +30,9 @@ public sealed class RunSnapshot
 
     /// <summary>The current act's map. Null when it couldn't be read.</summary>
     public MapSnapshot? Map { get; set; }
+
+    /// <summary>The upcoming encounters of the current act; null when it couldn't be read.</summary>
+    public ActPlan? Plan { get; set; }
 }
 
 public static class DecisionType
@@ -121,4 +124,23 @@ public sealed class MapSnapshot
     public MapCoordinate? Current { get; set; }
     public List<MapCoordinate> Visited { get; set; } = new();
     public MapCoordinate? Boss { get; set; }
+}
+
+/// <summary>
+/// What the game has already decided about the rest of the act. It draws encounters from lists shuffled at the
+/// start of the act, so the upcoming fights are known regardless of which path is taken.
+/// </summary>
+public sealed class ActPlan
+{
+    /// <summary>The act variant, e.g. OVERGROWTH or UNDERDOCKS for Act 1.</summary>
+    public string ActId { get; set; } = "";
+    /// <summary>Normal encounters not yet fought, in the order the game will draw them (the first three are the "weak" ones).</summary>
+    public List<string> Normal { get; set; } = new();
+    /// <summary>Elite encounters not yet fought, in draw order.</summary>
+    public List<string> Elite { get; set; } = new();
+    public string? Boss { get; set; }
+    /// <summary>Set at Ascension 10 (double boss).</summary>
+    public string? SecondBoss { get; set; }
+    /// <summary>Event rooms not yet visited, in draw order.</summary>
+    public List<string> Events { get; set; } = new();
 }

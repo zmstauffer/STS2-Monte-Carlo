@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using MegaCrit.Sts2.Core.Debug;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using SpireMonteCarlo.Contracts;
 
@@ -61,6 +63,7 @@ public static class SnapshotBuilder
 			{
 				snapshot.Run.Seed = runState.Rng?.StringSeed ?? "";
 				snapshot.Map = BuildMap(runState);
+				snapshot.Plan = BuildPlan(runState);
 			}
 		}
 		catch (Exception ex)
@@ -68,6 +71,34 @@ public static class SnapshotBuilder
 			Plugin.Log($"SnapshotBuilder: could not read run state extras: {ex.Message}");
 		}
 		return snapshot;
+	}
+
+	/// <summary>Reads the act's pre-shuffled encounter lists (ActModel._rooms) and drops the ones already visited.</summary>
+	private static ActPlan BuildPlan(RunState runState)
+	{
+		ActModel act = runState.Act;
+		var plan = new ActPlan { ActId = act.Id.Entry };
+		try
+		{
+			FieldInfo field = typeof(ActModel).GetField("_rooms", BindingFlags.Instance | BindingFlags.NonPublic);
+			if (field?.GetValue(act) is RoomSet rooms)
+			{
+				plan.Normal = rooms.normalEncounters.Skip(rooms.normalEncountersVisited).Select(e => e.Id.Entry).ToList();
+				plan.Elite = rooms.eliteEncounters.Skip(rooms.eliteEncountersVisited).Select(e => e.Id.Entry).ToList();
+				plan.Events = rooms.events.Skip(rooms.eventsVisited).Select(e => e.Id.Entry).ToList();
+				plan.Boss = rooms.Boss?.Id.Entry;
+				plan.SecondBoss = rooms.SecondBoss?.Id.Entry;
+			}
+			else
+			{
+				Plugin.Log("SnapshotBuilder: ActModel._rooms not found; act plan will only have the act id.");
+			}
+		}
+		catch (Exception ex)
+		{
+			Plugin.Log($"SnapshotBuilder: could not read the act plan: {ex.Message}");
+		}
+		return plan;
 	}
 
 	private static List<EventOptionSnapshot> ReadEventOptions(EventModel eventModel)
