@@ -154,7 +154,7 @@ public sealed class BasicBot
         c.EndPlayerTurn(startNextTurn: false);
         if (c.Result == CombatResult.Lost) return -100000;
         double lost = hpBefore - c.Hp;
-        if (c.Result == CombatResult.Won) return powers + 50 - lost;
+        if (c.Result == CombatResult.Won) return powers + 50 - Tuning.LostWeight * lost;
         // How hard the enemies will hit over the next few turns if we did nothing: this sees Ritual-style growth and charge-up turns.
         int horizon = deep ? (int)Math.Max(1, Tuning.Horizon) : 1;
         var perEnemy = new Dictionary<int, double>();
@@ -202,7 +202,7 @@ public sealed class BasicBot
         // The Insatiable's Sandpit ends the run when its countdown reaches 0; every point of margin is worth a lot when it is short.
         int sand = c.PlayerPowers[(int)PowerKind.Sandpit];
         double sandpit = sand <= 0 ? 0 : 300 * Math.Pow(0.35, sand - 1);
-        return powers - lost - future - Tuning.Progress * progress - sandpit;
+        return powers - Tuning.LostWeight * lost - future - Tuning.Progress * progress - sandpit;
     }
 
     /// <summary>Carries out one planned action on a combat (a copy while planning, the real one when playing). False if it can't be done.</summary>

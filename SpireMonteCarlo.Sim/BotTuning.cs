@@ -41,6 +41,8 @@ public sealed class BotTuning
     public double DrawValue = 6;
     /// <summary>Leaf mode: value of each energy left when a plan stops at a draw (the turn is planned again with the new cards and will spend it).</summary>
     public double ReplanEnergy = 8;
+    /// <summary>Leaf mode: how much an HP lost this turn counts against the plan compared with HP the enemies will cost later.</summary>
+    public double LostWeight = 1.0;
     /// <summary>Leaf mode: weight on the value of powers gained this turn.</summary>
     public double PowerGain = 1.0;
 
