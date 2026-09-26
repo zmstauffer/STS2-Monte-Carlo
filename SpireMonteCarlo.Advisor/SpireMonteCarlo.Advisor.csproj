@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- The simulator allocates a lot of short-lived objects on every core; the server GC is ~40% faster for that. -->
-    <ServerGarbageCollector>true</ServerGarbageCollector>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
 
