@@ -175,6 +175,8 @@ public class SmallPowerTests
         Assert.Equal(CombatResult.Ongoing, c.Result);
         Enemy next = c.Enemies.Last(e => e.Alive);
         Assert.Equal(1, next.Powers[(int)PowerKind.Stock]);
+        Assert.InRange(next.MaxHp, next.Def.HpMin + 10, next.Def.HpMaxTough + 10);
+        Assert.Equal(next.MaxHp, next.Hp);
     }
 
         [Fact]
