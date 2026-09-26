@@ -91,8 +91,11 @@ public sealed record DecisionOption(string Label, string? CardId, RolloutStart S
 
 public static class AdviceEngine
 {
+    /// <summary>Above this many options, all are screened on a fifth of the futures and only the best <see cref="ScreenKeep"/> (and the baseline) get the rest.</summary>
+    public const int ScreenAbove = 8, ScreenKeep = 6;
+
     /// <summary>The smallest gap (in points) reported as a real difference between two options.</summary>
-    public const double MeaningfulPoints = 0.5;
+    public const double MeaningfulPoints = 1.0;
 
     // How the end-of-Act-1 deck predicts surviving Act 2, fit by logistic regression on chained runs (sim calibrate-run --maps 400 --act2
     // at the calibrated HP scales, ~3900 Act 1 survivors): logit P = -6.99 + 5.93 x deck strength + 4.99 x share of HP carried in (after
@@ -186,13 +189,27 @@ public static class AdviceEngine
             };
         var results = new RolloutResult[options.Count][];
         for (int j = 0; j < options.Count; j++) results[j] = new RolloutResult[rollouts];
+        int act0 = snapshot.Run.Act;
+        double[] laterPoints = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck)).ToArray();
 
-        Parallel.For(0, rollouts, i =>
+        void RunFutures(int from, int to, IReadOnlyList<int> which) => Parallel.For(from, to, i =>
         {
             ulong rolloutSeed = SimRng.Mix(seed, (ulong)i);
-            for (int j = 0; j < options.Count; j++)
-                results[j][i] = rollout.Run(options[j].Start, rolloutSeed);
+            foreach (int j in which) results[j][i] = rollout.Run(options[j].Start, rolloutSeed);
         });
+
+        // With many options (a shop's bundles), screen them all on a fifth of the futures first and give the full count only to the
+        // baseline and the best few; the rest are reported from the screening futures. A 24-option shop took over a minute before.
+        var all = Enumerable.Range(0, options.Count).ToList();
+        int screen = options.Count > ScreenAbove ? Math.Max(100, rollouts / 5) : rollouts;
+        RunFutures(0, screen, all);
+        if (screen < rollouts)
+        {
+            double Mean(int j) => results[j].Take(screen).Average(r => ValueOf(r, act0) + (r.Survived ? laterPoints[j] / 100 : 0));
+            var kept = all.OrderByDescending(Mean).Take(ScreenKeep).Append(0).Distinct().ToList();
+            RunFutures(screen, rollouts, kept);
+            foreach (int j in all.Except(kept)) results[j] = results[j].Take(screen).ToArray();
+        }
 
         double DeathRate(RolloutResult[] rs, string room) => rs.Count(r => r.DiedTo != null && RoomOf(data, r.DiedTo) == room) / (double)rs.Length;
         double HpLostPerFight(RolloutResult[] rs, string room)
@@ -206,8 +223,8 @@ public static class AdviceEngine
 
         // Each option's value per future: the chance to win from where the future ends, plus (if it survived the act) what the option's
         // cards are worth later in the run.
-        int act = snapshot.Run.Act;
-        double[] longTerm = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck)).ToArray();
+        int act = act0;
+        double[] longTerm = laterPoints;
         double[][] allValues = results.Select((rs, j) => rs.Select(r => ValueOf(r, act) + (r.Survived ? longTerm[j] / 100 : 0)).ToArray()).ToArray();
         int bestIndex = Enumerable.Range(0, options.Count).MaxBy(j => allValues[j].Average());
         double[] skipValues = allValues[0];
@@ -230,8 +247,8 @@ public static class AdviceEngine
                 Label = options[j].Label,
                 CardId = options[j].CardId,
                 IsBaseline = j == 0,
-                Rollouts = rollouts,
-                SurvivalRate = survivors / (double)rollouts,
+                Rollouts = rs.Length,
+                SurvivalRate = survivors / (double)rs.Length,
                 MeanHpEnd = hp.Average(),
                 MeanHpEndIfSurvived = survivors == 0 ? 0 : rs.Where(r => r.Survived).Average(r => r.HpEnd),
                 MeanFutureIfSurvived = survivors == 0 ? 0 : rs.Where(r => r.Survived).Average(r => ValueOf(r, act)),
@@ -274,10 +291,10 @@ public static class AdviceEngine
 
     private static string RoomOf(SimData data, string encounter) => data.Encounters.Contains(encounter) ? data.Encounters.Get(encounter).RoomType : "";
 
-    /// <summary>Mean of (a - b) over paired samples and its standard error.</summary>
+    /// <summary>Mean of (a - b) over paired samples (the futures both were run on) and its standard error.</summary>
     private static (double Mean, double StandardError) PairedDifference(double[] a, double[] b)
     {
-        int n = a.Length;
+        int n = Math.Min(a.Length, b.Length);
         double mean = 0;
         for (int i = 0; i < n; i++) mean += a[i] - b[i];
         mean /= n;
