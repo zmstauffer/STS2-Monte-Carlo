@@ -87,6 +87,28 @@ public static class RunEdits
         for (int i = 0; i < count; i++) st.GainRandomPotion();
     }
 
+    /// <summary>Puts an enchantment on the cards the player would choose (the best-liked cards it fits; basic cards first when asked).</summary>
+    public static void EnchantCards(this EventState st, Enchant e, int amount, int count = 1, bool preferBasics = false)
+    {
+        foreach (int i in Enchantments.Choose(st.Deck, e, count, st.Pool, preferBasics).ToList())
+            st.Deck[i] = Enchantments.Apply(st.Deck[i], e, amount);
+    }
+
+    /// <summary>Enchants every card of the deck the predicate accepts and the game allows (Pael's Claw, Nutritious Soup).</summary>
+    public static void EnchantAll(this EventState st, Enchant e, int amount, Func<CardDef, bool> where)
+    {
+        for (int i = 0; i < st.Deck.Count; i++)
+            if (where(st.Deck[i]) && Enchantments.CanEnchant(st.Deck[i], e)) st.Deck[i] = Enchantments.Apply(st.Deck[i], e, amount);
+    }
+
+    /// <summary>Enchants random cards the game allows (Beautiful Bracelet).</summary>
+    public static void EnchantRandom(this EventState st, Enchant e, int amount, int count)
+    {
+        var candidates = Enumerable.Range(0, st.Deck.Count).Where(i => Enchantments.CanEnchant(st.Deck[i], e)).ToList();
+        st.Rng.Shuffle(candidates);
+        foreach (int i in candidates.Take(count)) st.Deck[i] = Enchantments.Apply(st.Deck[i], e, amount);
+    }
+
     /// <summary>Loses HP in real points, but never kills the player (a relic pickup would not be taken at 1 HP).</summary>
     public static void PayHp(this EventState st, double amount) => st.Hp = Math.Max(1, st.Hp - amount);
 
@@ -179,6 +201,17 @@ public static class RelicPickups
             }
             else st.AddCurse("DOUBT");
         },
+        ["PAELS_CLAW"] = st => st.EnchantAll(Enchant.Goopy, 1, c => c.Id.StartsWith("DEFEND_")),
+        ["PAELS_GROWTH"] = st => st.EnchantCards(Enchant.Clone, 4),
+        ["BEAUTIFUL_BRACELET"] = st => st.EnchantRandom(Enchant.Swift, 2, 4),
+        ["ELECTRIC_SHRYMP"] = st => st.EnchantCards(Enchant.Imbued, 1),
+        ["NUTRITIOUS_SOUP"] = st => st.EnchantAll(Enchant.TezcatarasEmber, 1, c => c.Id.StartsWith("STRIKE_")),
+        ["TRI_BOOMERANG"] = st => st.EnchantCards(Enchant.Instinct, 1, 3),
+        ["GNARLED_HAMMER"] = st => st.EnchantCards(Enchant.Sharp, 3, 3),
+        ["KIFUDA"] = st => st.EnchantCards(Enchant.Adroit, 3, 3),
+        ["PUNCH_DAGGER"] = st => st.EnchantCards(Enchant.Momentum, 5),
+        ["ROYAL_STAMP"] = st => st.EnchantCards(Enchant.RoyallyApproved, 1),
+        ["SILKEN_TRESS"] = st => st.LoseGold(st.Gold),
         ["ALCHEMICAL_COFFER"] = st => { st.PotionSlots += 4; st.GainPotions(4); },
     };
 

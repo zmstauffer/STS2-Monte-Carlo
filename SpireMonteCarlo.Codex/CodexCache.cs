@@ -160,6 +160,9 @@ public sealed class CodexCache
         File.WriteAllText(Path.Combine(dir, "encounter_lineups.json"), JsonSerializer.Serialize(extraction, Json));
     }
 
+    public IReadOnlyList<CodexPotion> LoadPotions() =>
+        Read<List<CodexPotion>>(Path.Combine("export", "potions.json"));
+
     public IReadOnlyList<CodexRelic> LoadRelics() =>
         Read<List<CodexRelic>>(Path.Combine("export", "relics.json"));
 

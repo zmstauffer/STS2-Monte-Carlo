@@ -333,7 +333,7 @@ public static class EventLibrary
         yield return Ev("SAPPHIRE_SEED", s => new[]
         {
             Opt("EAT", x => { x.Heal(9); x.UpgradeBest(); }),
-            Opt("PLANT", x => x.Notes.Add("The Sown enchantment isn't modelled.")),
+            Opt("PLANT", x => x.EnchantCards(Enchant.Sown, 1)),
         }, s => "EAT");
 
         yield return Ev("SUNKEN_STATUE", s => new[]
@@ -369,7 +369,7 @@ public static class EventLibrary
         yield return Ev("WOOD_CARVINGS", s => new[]
         {
             Opt("BIRD", x => { if (x.RemoveWorstCard()) x.AddCard("PECK"); }),
-            Opt("SNAKE", x => x.Notes.Add("The Slither enchantment isn't modelled.")),
+            Opt("SNAKE", x => x.EnchantCards(Enchant.Slither, 1)),
             Opt("TORUS", x => { if (x.RemoveWorstCard()) x.AddCard("TORIC_TOUGHNESS"); }),
         }, s => "BIRD", allowed: s => s.TransformableBasicCards > 0);
 
@@ -394,7 +394,7 @@ public static class EventLibrary
 
         yield return Ev("SPIRALING_WHIRLPOOL", s => new[]
         {
-            Opt("OBSERVE", x => x.Notes.Add("The Spiral enchantment isn't modelled.")),
+            Opt("OBSERVE", x => x.EnchantCards(Enchant.Spiral, 1, preferBasics: true)),
             Opt("DRINK", x => x.HealFraction(0.33)),
         }, s => s.HpFraction < 0.7 ? "DRINK" : "OBSERVE");
 
@@ -419,8 +419,8 @@ public static class EventLibrary
         yield return Ev("WATERLOGGED_SCRIPTORIUM", s => new[]
         {
             Opt("BLOODY_INK", x => x.GainMaxHp(6)),
-            Opt("TENTACLE_QUILL", x => { x.LoseGold(55); x.Notes.Add("The Steady enchantment isn't modelled."); }, enabled: s.Gold >= 55),
-            Opt("PRICKLY_SPONGE", x => { x.LoseGold(99); x.Notes.Add("The Steady enchantment isn't modelled."); }, enabled: s.Gold >= 99),
+            Opt("TENTACLE_QUILL", x => { x.LoseGold(55); x.EnchantCards(Enchant.Steady, 1); }, enabled: s.Gold >= 55),
+            Opt("PRICKLY_SPONGE", x => { x.LoseGold(99); x.EnchantCards(Enchant.Steady, 1); }, enabled: s.Gold >= 99),
         }, s => "BLOODY_INK", allowed: s => s.Gold >= 55);
 
         // ---- shared events that can appear in Act 1 ----

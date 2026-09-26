@@ -36,6 +36,20 @@ public static class AuditCommand
         Console.WriteLine($"  {newer.Count} cards exist in the game but not in Codex: {string.Join(", ", newer)}");
 
         Console.WriteLine();
+        Console.WriteLine("== Relics (an effect in combat or on the run) ==");
+        var relics = cache.LoadRelics();
+        foreach (var group in relics.Where(r => r.Pool is "shared" or "ironclad").GroupBy(r => r.Rarity).OrderBy(g => g.Key))
+        {
+            var missing = group.Where(r => RelicRules.Parse(r.Id) == RelicKind.Unknown && !RelicPickups.Has(r.Id) && !RelicRules.IsInert(r.Id)).Select(r => r.Id).OrderBy(id => id).ToList();
+            Console.WriteLine($"  {group.Key,-16} {group.Count() - missing.Count,3} modelled, {missing.Count} missing" + (missing.Count > 0 ? ": " + string.Join(", ", missing) : ""));
+            problems += missing.Count;
+        }
+        var potionIds = cache.LoadPotions().Where(p => p.Pool is "shared" or "ironclad" or "event" or "token").Select(p => p.Id).OrderBy(id => id).ToList();
+        var missingPotions = potionIds.Where(id => PotionLibrary.Find(id) == null).ToList();
+        Console.WriteLine($"  Potions          {potionIds.Count - missingPotions.Count,3} modelled, {missingPotions.Count} missing" + (missingPotions.Count > 0 ? ": " + string.Join(", ", missingPotions) : ""));
+        problems += missingPotions.Count;
+
+        Console.WriteLine();
         Console.WriteLine("== Monsters used by encounters ==");
         var used = data.Encounters.All.SelectMany(e => e.Variants.SelectMany(v => v).SelectMany(s => s.Options)).Distinct().OrderBy(id => id).ToList();
         int flagged = 0;

@@ -55,6 +55,10 @@ public enum RelicKind
     WhiteBeastStatue, BlackStar, Driftwood, DingyRug, DragonFruit, LavaLamp, MembershipCard, MiniatureTent, LordsParasol, SilverCrucible, DreamCatcher,
     MawBank, WongosMysteryTicket, SwordOfStone, BingBong, DarkstonePeriapt, FurCoat, PaelsTooth, WarHammer, EmberTea, BoneTea, TeaOfDiscourtesy,
     FakeVenerableTeaSet, TouchOfOrobas,
+    // enchantment relics
+    MysticLighter, GnarledHammer, Kifuda, PunchDagger, RoyalStamp, WingCharm, Glitter, SilkenTress, FresnelLens, PaelsClaw, PaelsGrowth,
+    BeautifulBracelet, ElectricShrymp, NutritiousSoup, TriBoomerang,
+    ToyBox, MeatCleaver, PaelsLegion, PaelsWing,
     // set by the rollout for one combat
     GiryaLift1, GiryaLift2, GiryaLift3, FurCoatMarked,
 }
@@ -68,6 +72,9 @@ public static class RelicRules
 
     /// <summary>BURNING_BLOOD, BAG_OF_MARBLES, ... to a kind; Unknown for relics the simulator doesn't model.</summary>
     public static RelicKind Parse(string id) => ById.GetValueOrDefault(id, RelicKind.Unknown);
+
+    /// <summary>Relics that really do nothing in the game (joke items).</summary>
+    public static bool IsInert(string id) => id is "FAKE_MERCHANTS_RUG" or "WONGO_CUSTOMER_APPRECIATION_BADGE" or "CIRCLET";
 
     private static string ToSnake(string pascal)
     {

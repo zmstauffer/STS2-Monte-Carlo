@@ -203,7 +203,7 @@ public sealed partial class Combat
     /// <summary>Damage one attack of <paramref name="baseDamage"/> would deal to <paramref name="target"/> right now (null: ignore the target's powers).</summary>
     public int PlayerAttackDamage(int baseDamage, Enemy? target, CardDef? card = null)
     {
-        double d = Math.Max(0, baseDamage + PlayerPowers[(int)PowerKind.Strength] + RelicDamageBonus(card));
+        double d = Math.Max(0, baseDamage + PlayerPowers[(int)PowerKind.Strength] + RelicDamageBonus(card) + EnchantDamageBonus(card));
         if (PlayerPowers[(int)PowerKind.Weak] > 0) d *= 0.75;
         if (target != null)
         {
@@ -212,12 +212,14 @@ public sealed partial class Combat
             if (target.Powers[(int)PowerKind.Flutter] > 0 || target.Powers[(int)PowerKind.Soar] > 0) d *= 0.5;
         }
         if (_penNibActive) d *= 2;
+        d *= EnchantDamageMultiplier(card);
         return (int)Math.Floor(d);
     }
 
     /// <summary>Block a card of <paramref name="baseBlock"/> would give right now, with Dexterity, Frail, and Unmovable.</summary>
-    public int PlayerBlockGain(int baseBlock)
+    public int PlayerBlockGain(int baseBlock, CardDef? card = null)
     {
+        baseBlock += EnchantBlockBonus(card);
         double b = Math.Max(0, baseBlock + PlayerPowers[(int)PowerKind.Dexterity] + RelicDexterityBonus());
         if (PlayerPowers[(int)PowerKind.Frail] > 0) b *= 0.75;
         if (PlayerPowers[(int)PowerKind.Unmovable] > 0 && _cardBlockGainsThisTurn < PlayerPowers[(int)PowerKind.Unmovable]) b *= 2;
@@ -368,7 +370,7 @@ public sealed partial class Combat
         PlayerPowers[(int)PowerKind.Strength] += PlayerPowers[(int)PowerKind.DemonForm];
         DrawCards(Math.Max(0, HandSize + extraDraw), fromHandDraw: true);
         RelicAfterDraw();
-        if (Turn == 1) RelicAfterFirstDraw();
+        if (Turn == 1) { RelicAfterFirstDraw(); EnchantAtCombatStart(); }
         RelicAfterEveryDraw();
 
         if (PlayerPowers[(int)PowerKind.CrimsonMantle] > 0)
@@ -422,9 +424,9 @@ public sealed partial class Combat
     private static bool Targetable(Enemy e) => e.Alive && !e.Dying;
 
     /// <summary>Block from a card (already scaled by Dexterity and Frail); Unmovable doubles the first few each turn.</summary>
-    private void GainBlockFromCard(int baseBlock)
+    private void GainBlockFromCard(int baseBlock, CardDef? card = null)
     {
-        int amount = RelicBlockFromCard(PlayerBlockGain(baseBlock));
+        int amount = RelicBlockFromCard(PlayerBlockGain(baseBlock, card));
         _cardBlockGainsThisTurn++;
         GainBlockRaw(amount);
     }

@@ -168,6 +168,10 @@ public sealed class CardDef
     public int RandomCost { get; set; } = -1;
     /// <summary>Plays an extra time each time it is played (Soldier's Stew).</summary>
     public int Replay { get; set; }
+    /// <summary>The enchantment on this card and its amount; <see cref="EnchantUsed"/> marks a once-per-combat effect as spent.</summary>
+    public Enchant Enchantment { get; set; }
+    public int EnchantAmount { get; set; }
+    public bool EnchantUsed { get; set; }
     public bool IsEthereal => Ethereal || ExtraEthereal;
     public bool IsRetained => Retain || ExtraRetain;
     public bool UpgradedInCombat { get; set; }
@@ -180,7 +184,7 @@ public sealed class CardDef
         Retain = Retain, IsStrike = IsStrike, Effects = Effects, EndTurnDamage = EndTurnDamage, EndTurnHpLoss = EndTurnHpLoss,
         DamageGrowthPerPlay = DamageGrowthPerPlay, CheaperPerAttackPlayed = CheaperPerAttackPlayed, CostsMoreEachPlay = CostsMoreEachPlay,
         EnergyWhenExhausted = EnergyWhenExhausted, PlaysFromExhaustPile = PlaysFromExhaustPile, Approximate = Approximate,
-        UpgradedForm = UpgradedForm,
+        UpgradedForm = UpgradedForm, Enchantment = Enchantment, EnchantAmount = EnchantAmount,
     };
 
     /// <summary>Copy of this exact card with its current in-combat state, for cloning a whole combat.</summary>
@@ -191,7 +195,7 @@ public sealed class CardDef
         c.CostReductionThisTurn = CostReductionThisTurn;
         c.CostIncreaseThisCombat = CostIncreaseThisCombat;
         c.FreeThisTurn = FreeThisTurn;
-        c.ExtraEthereal = ExtraEthereal; c.ExtraRetain = ExtraRetain; c.FreeThisCombat = FreeThisCombat; c.RandomCost = RandomCost; c.Replay = Replay;
+        c.EnchantUsed = EnchantUsed; c.ExtraEthereal = ExtraEthereal; c.ExtraRetain = ExtraRetain; c.FreeThisCombat = FreeThisCombat; c.RandomCost = RandomCost; c.Replay = Replay;
         c.UpgradedInCombat = UpgradedInCombat;
         c.Tag = Tag;
         return c;

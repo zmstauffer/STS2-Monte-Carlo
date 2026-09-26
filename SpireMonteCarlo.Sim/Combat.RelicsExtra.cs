@@ -181,6 +181,7 @@ public sealed partial class Combat
             made.FreeThisTurn = true;
             _rr.PendingHandAdds.Add(made);
         }
+        if (_rr.LegionCooldown > 0) _rr.LegionCooldown--;
         _rr.MusicBoxUsedThisTurn = false;
         _rr.HandPlaysThisTurn = 0;
         _rr.LastAttackLastTurn = _rr.LastAttackThisTurn;

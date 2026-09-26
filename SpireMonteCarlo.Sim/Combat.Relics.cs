@@ -188,6 +188,12 @@ public sealed partial class Combat
     /// <summary>Vambrace doubles the first block a card gives each combat.</summary>
     private int RelicBlockFromCard(int amount)
     {
+        if (amount > 0 && Has(RelicKind.PaelsLegion) && _rr.LegionCooldown <= 0)
+        {
+            // Pael's Legion doubles the block of a card, then sleeps for two turns.
+            _rr.LegionCooldown = 2;
+            amount *= 2;
+        }
         if (amount > 0 && Has(RelicKind.Vambrace) && !_vambraceUsed)
         {
             _vambraceUsed = true;

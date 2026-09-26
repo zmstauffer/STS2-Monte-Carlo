@@ -223,6 +223,15 @@ public sealed class CodexRelic
     public CodexMerchantPrice? MerchantPrice { get; set; }
 }
 
+public sealed class CodexPotion
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Rarity { get; set; } = "";
+    public string Pool { get; set; } = "";
+    public string Description { get; set; } = "";
+}
+
 public sealed class CodexMerchantPrice
 {
     public int Base { get; set; }

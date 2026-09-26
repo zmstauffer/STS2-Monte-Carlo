@@ -183,7 +183,7 @@ public sealed partial class Combat
                 plays = 2;
                 PlayerPowers[(int)PowerKind.OneTwoPunch]--;
             }
-            plays += RelicExtraPlays(card) + card.Replay;
+            plays += RelicExtraPlays(card) + card.Replay + EnchantExtraPlays(card);
             for (int p = 0; p < plays && Result != CombatResult.Lost; p++) RunEffects(card, target, x);
 
             CardsPlayed++;
@@ -227,6 +227,7 @@ public sealed partial class Combat
         }
         if (card.DamageGrowthPerPlay > 0) card.BonusDamage += card.DamageGrowthPerPlay;
         if (ctx.LampFired) _rr.LampUsed = true;
+        if (!fromPotion) EnchantOnPlay(card, target);
     }
 
     private Enemy? TargetOf(PlayContext ctx) =>
@@ -265,7 +266,7 @@ public sealed partial class Combat
                 }
                 break;
             case EffectOp.Block:
-                for (int h = 0; h < hits; h++) GainBlockFromCard(amount);
+                for (int h = 0; h < hits; h++) GainBlockFromCard(amount, card);
                 break;
             case EffectOp.DamageFlat:
                 if (target != null && Targetable(target)) DamageEnemy(target, amount, fromCard: false);
@@ -328,7 +329,7 @@ public sealed partial class Combat
                 foreach (CardDef c in Hand.Where(c => c.Kind != CardKind.Attack).ToList())
                 {
                     ExhaustCard(c);
-                    GainBlockFromCard(amount);
+                    GainBlockFromCard(amount, card);
                 }
                 break;
             case EffectOp.UpgradeChosenInHand:
@@ -500,6 +501,7 @@ public sealed partial class Combat
         DrawPile.AddRange(DiscardPile);
         DiscardPile.Clear();
         Rng.Shuffle(DrawPile);
+        EnchantOnShuffle();
         RelicOnShuffle();
         return true;
     }
@@ -515,6 +517,7 @@ public sealed partial class Combat
         DrawPile.RemoveAt(DrawPile.Count - 1);
         Hand.Add(card);
         if (PlayerPowers[(int)PowerKind.Confused] > 0 && card.Cost >= 0) card.RandomCost = Rng.Next(4);
+        EnchantOnDraw(card);
         if (PlayerPowers[(int)PowerKind.Hellraiser] > 0 && card.IsStrike) AutoPlay(card, forceExhaust: false);
         return card;
     }

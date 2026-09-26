@@ -198,6 +198,7 @@ public sealed class ActRollout
         int Counter(string key) => counters.GetValueOrDefault(key);
         void AddCounter(string key, int delta) => counters[key] = counters.GetValueOrDefault(key) + delta;
         var paelsToothStash = new List<CardDef>();
+        var waxRelics = new List<string>();
         var furCoatMarks = new HashSet<int>();
         bool mawActive = false, venerableNext = false, fakeVenerableNext = false;
         var owned = new HashSet<string>(start.Relics);
@@ -244,6 +245,16 @@ public sealed class ActRollout
                         deck.RemoveAt(at);
                     }
                     break;
+                case "TOY_BOX":
+                    // Five relics that are wax: the leftmost one melts away every three combats.
+                    for (int w = 0; w < 5; w++)
+                    {
+                        string? wax = _relicPool.Roll(rng, owned);
+                        if (wax == null) continue;
+                        waxRelics.Add(wax);
+                        Acquire(wax, rng);
+                    }
+                    break;
                 case "TOUCH_OF_OROBAS":
                     // The starter relic is replaced by its upgrade.
                     if (owned.Remove("BURNING_BLOOD")) { relics.Remove(RelicKind.BurningBlood); Acquire("BLACK_BLOOD", rng); }
@@ -275,10 +286,12 @@ public sealed class ActRollout
         }
 
         // A card taken into the deck is upgraded on the way in by the matching Egg; Bing Bong copies it, Lucky Fysh pays, Book of Five Rings heals.
-        void AddToDeck(string id, bool upgraded = false)
+        void AddToDeck(string id, bool upgraded = false, Enchant enchant = Enchant.None, int enchantAmount = 0)
         {
             CardDef card = _data.Cards.Get(id, upgraded);
             if (!upgraded && card.UpgradedForm != null && DeckPolicies.EggUpgrades(card.Kind, owned)) card = _data.Cards.Get(id, true);
+            if (Own(RelicKind.FresnelLens) && Enchantments.CanEnchant(card, Enchant.Nimble)) card = Enchantments.Apply(card, Enchant.Nimble, 2);
+            else if (enchant != Enchant.None && Enchantments.CanEnchant(card, enchant)) card = Enchantments.Apply(card, enchant, enchantAmount);
             deck.Add(card);
             if (Own(RelicKind.BingBong)) deck.Add(card);
             if (Own(RelicKind.LuckyFysh)) GainGold(15);
@@ -521,6 +534,18 @@ public sealed class ActRollout
                     for (int i = 0; i < 3; i++) Acquire(_relicPool.Roll(wongoRng, owned), wongoRng);
                 }
             }
+            if (Own(RelicKind.ToyBox) && waxRelics.Count > 0)
+            {
+                AddCounter("TOY_BOX", 1);
+                if (Counter("TOY_BOX") % 3 == 0)
+                {
+                    string melted = waxRelics[0];
+                    waxRelics.RemoveAt(0);
+                    owned.Remove(melted);
+                    RelicKind meltedKind = RelicRules.Parse(melted);
+                    if (meltedKind != RelicKind.Unknown) relics.Remove(meltedKind);
+                }
+            }
             if (paelsToothStash.Count > 0)
             {
                 int back = new SimRng(SimRng.Mix(fightSeed, 0x7007)).Next(paelsToothStash.Count);
@@ -556,7 +581,22 @@ public sealed class ActRollout
                         offer = Own(RelicKind.DingyRug) ? _pool.GenerateOfferWithColorless(kind, rarity, rewardRng) : _pool.GenerateOffer(kind, rarity, rewardRng);
                         pick = PickPolicy.Choose(offer, _pool, deck.Count, rewardRng);
                     }
-                    if (pick >= 0) AddToDeck(offer[pick], upgraded && _data.Cards.Get(offer[pick], false).UpgradedForm != null);
+                    if (pick < 0 && Own(RelicKind.PaelsWing))
+                    {
+                        // A reward nobody wants is sacrificed to Pael: every second one turns into a relic.
+                        AddCounter("PAELS_WING", 1);
+                        if (Counter("PAELS_WING") % 2 == 0) Acquire(_relicPool.Roll(rewardRng, owned), rewardRng);
+                    }
+                    if (pick >= 0)
+                    {
+                        // Glitter and Silken Tress put Glam on the reward's cards; Wing Charm puts Swift on one of them.
+                        Enchant rewardEnchant = Enchant.None;
+                        int rewardAmount = 1;
+                        if (Own(RelicKind.Glitter) || (Own(RelicKind.SilkenTress) && Counter("SILKEN") == 0)) rewardEnchant = Enchant.Glam;
+                        else if (Own(RelicKind.WingCharm) && pick == rewardRng.Next(offer.Length)) rewardEnchant = Enchant.Swift;
+                        AddToDeck(offer[pick], upgraded && _data.Cards.Get(offer[pick], false).UpgradedForm != null, rewardEnchant, rewardAmount);
+                    }
+                    if (Own(RelicKind.SilkenTress) && Counter("SILKEN") == 0) AddCounter("SILKEN", 1);
                 }
                 if (kind == RewardKind.Elite && Own(RelicKind.WhiteStar))
                 {
@@ -637,8 +677,22 @@ public sealed class ActRollout
                         }
                         if (!needHeal || tent)
                         {
-                            if (Own(RelicKind.PumpkinCandle) && Counter("PUMPKIN_CANDLE") <= 0) counters["PUMPKIN_CANDLE"] = 5;   // kindle it again
+                            int cloneAt = Own(RelicKind.PaelsGrowth) ? deck.FindIndex(c => c.Enchantment == Enchant.Clone && c.EnchantAmount > 0) : -1;
+                            if (cloneAt >= 0)
+                            {
+                                // Pael's Growth: copy the enchanted card at the rest site.
+                                CardDef source = deck[cloneAt];
+                                deck.Add(source.Enchantment == Enchant.Clone ? _data.Cards.Get(source.Id, source.Upgraded) : source);
+                                deck[cloneAt] = source.EnchantAmount > 1 ? Enchantments.Apply(_data.Cards.Get(source.Id, source.Upgraded), Enchant.Clone, source.EnchantAmount - 1) : _data.Cards.Get(source.Id, source.Upgraded);
+                            }
+                            else if (Own(RelicKind.PumpkinCandle) && Counter("PUMPKIN_CANDLE") <= 0) counters["PUMPKIN_CANDLE"] = 5;   // kindle it again
                             else if (Own(RelicKind.Girya) && Counter("GIRYA") < 3) AddCounter("GIRYA", 1);   // lift
+                            else if (Own(RelicKind.MeatCleaver) && deck.Count(c => c.Id.StartsWith("STRIKE_") || c.Id.StartsWith("DEFEND_")) >= 2)
+                            {
+                                // Cook: two cards are removed and the player is 5 max HP stronger.
+                                RemoveWorstCard(); RemoveWorstCard();
+                                GainMaxHp(5);
+                            }
                             else if (Own(RelicKind.Shovel)) Acquire(_relicPool.Roll(pathRng, owned), pathRng);   // dig up a relic instead of upgrading
                             else UpgradeBest(deck);
                         }

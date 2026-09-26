@@ -305,7 +305,7 @@ public sealed class BasicBot
                     }
                 case EffectOp.Block:
                     {
-                        int gain = combat.PlayerBlockGain(amount) * Math.Max(1, hits);
+                        int gain = combat.PlayerBlockGain(amount, isCard ? card : null) * Math.Max(1, hits);
                         score += BlockValue(Tuning, gain, needBlock, lethalDanger);
                         break;
                     }
@@ -318,7 +318,7 @@ public sealed class BasicBot
                 case EffectOp.ExhaustNonAttacksForBlock:
                     {
                         int count = combat.Hand.Count(c => c.Kind != CardKind.Attack && c != card);
-                        int gain = combat.PlayerBlockGain(amount) * count;
+                        int gain = combat.PlayerBlockGain(amount, isCard ? card : null) * count;
                         score += BlockValue(Tuning, gain, needBlock, lethalDanger) - 0.4 * count;
                         break;
                     }
