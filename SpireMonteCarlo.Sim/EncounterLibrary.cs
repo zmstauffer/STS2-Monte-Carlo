@@ -67,6 +67,17 @@ public sealed class EncounterLibrary
         {
             Enumerable.Repeat(new Slot("AXE_RUBY_RAIDER", "ASSASSIN_RUBY_RAIDER", "BRUTE_RUBY_RAIDER", "CROSSBOW_RUBY_RAIDER", "TRACKER_RUBY_RAIDER"), 3).ToArray(),
         }, true),
+
+        // Act 2 (Hive): a Bowlbug Rock plus two different workers out of three (two different from egg and nectar in the weak fight).
+        ["BOWLBUGS_NORMAL"] = (new[] { new[] { new Slot("BOWLBUG_ROCK"), new Slot("BOWLBUG_EGG", "BOWLBUG_SILK", "BOWLBUG_NECTAR"), new Slot("BOWLBUG_EGG", "BOWLBUG_SILK", "BOWLBUG_NECTAR") } }, true),
+        ["BOWLBUGS_WEAK"] = (new[] { new[] { new Slot("BOWLBUG_ROCK"), new Slot("BOWLBUG_EGG", "BOWLBUG_NECTAR") } }, false),
+        // The scrolls' first three moves rotate from a random start; the fourth in the normal fight always starts on move 2 (the engine rotates it too).
+        ["SCROLLS_OF_BITING_NORMAL"] = (new[] { Enumerable.Repeat(new Slot("SCROLL_OF_BITING"), 4).ToArray() }, false),
+        ["SCROLLS_OF_BITING_WEAK"] = (new[] { Enumerable.Repeat(new Slot("SCROLL_OF_BITING"), 3).ToArray() }, false),
+        ["DECIMILLIPEDE_ELITE"] = (new[] { new[] { new Slot("DECIMILLIPEDE_SEGMENT_FRONT"), new Slot("DECIMILLIPEDE_SEGMENT_MIDDLE"), new Slot("DECIMILLIPEDE_SEGMENT_BACK") } }, false),
+        // Event fights: Dense Vegetation's four wrigglers start awake; Punch Off's first construct opens with its fast punch.
+        ["DENSE_VEGETATION_EVENT_ENCOUNTER"] = (new[] { Enumerable.Repeat(new Slot("WRIGGLER"), 4).ToArray() }, false),
+        ["PUNCH_OFF_EVENT_ENCOUNTER"] = (new[] { new[] { new Slot("PUNCH_CONSTRUCT"), new Slot("PUNCH_CONSTRUCT") } }, false),
     };
 
     /// <summary>Encounters that flag one monster to start on its alternative move, and which lineup position it is.</summary>
@@ -74,6 +85,7 @@ public sealed class EncounterLibrary
     {
         ["INKLETS_NORMAL"] = new[] { 1 },      // the middle Inklet
         ["THE_KIN_BOSS"] = new[] { 0 },        // the first Kin Follower starts with its dance
+        ["PUNCH_OFF_EVENT_ENCOUNTER"] = new[] { 0 },   // the first Punch Construct starts with its fast punch
     };
 
     private readonly Dictionary<string, EncounterDef> _encounters = new();

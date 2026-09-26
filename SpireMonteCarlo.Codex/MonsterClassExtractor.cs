@@ -83,10 +83,11 @@ public static class MonsterClassExtractor
     public static Dictionary<string, ExtractedMonster> ExtractAll(string monstersDir)
     {
         var result = new Dictionary<string, ExtractedMonster>();
+        Dictionary<string, string> sources = DecompiledExtractor.MonsterSourcesWithBases(monstersDir);
         foreach (string file in Directory.GetFiles(monstersDir, "*.cs"))
         {
-            string text = File.ReadAllText(file);
-            Match cls = Regex.Match(text, @"public (?:sealed |abstract )?class (?<c>\w+) : MonsterModel");
+            string text = sources.GetValueOrDefault(Path.GetFileNameWithoutExtension(file)) ?? File.ReadAllText(file);
+            Match cls = Regex.Match(text, @"public (?:sealed |abstract )?class (?<c>\w+) : (?:MonsterModel|\w+Segment)");
             if (!cls.Success) continue;
             ExtractedMonster monster = Parse(text);
             monster.Class = cls.Groups["c"].Value;

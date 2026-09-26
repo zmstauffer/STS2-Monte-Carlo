@@ -84,9 +84,11 @@ public static class MonsterAiExtractor
     public static Dictionary<string, ExtractedMachine> ExtractAll(string monstersDir)
     {
         var result = new Dictionary<string, ExtractedMachine>();
+        Dictionary<string, string> sources = DecompiledExtractor.MonsterSourcesWithBases(monstersDir);
         foreach (string file in Directory.GetFiles(monstersDir, "*.cs"))
         {
-            string text = File.ReadAllText(file);
+            // A monster that inherits its behavior (the Decimillipede segments) is read together with its base class.
+            string text = sources.GetValueOrDefault(Path.GetFileNameWithoutExtension(file)) ?? File.ReadAllText(file);
             string? body = DecompiledExtractor.MethodBody(text, "GenerateMoveStateMachine()");
             if (body == null) continue;
             ExtractedMachine? machine = Parse(body);

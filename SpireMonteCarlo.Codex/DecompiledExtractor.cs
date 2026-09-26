@@ -37,6 +37,24 @@ public static class DecompiledExtractor
         return result;
     }
 
+    /// <summary>
+    /// The source text of every monster file, with the source of its base class appended when that base is another monster file
+    /// (the Decimillipede segments inherit all their behavior). The subclass comes first, so what it overrides wins.
+    /// </summary>
+    public static Dictionary<string, string> MonsterSourcesWithBases(string monstersDir)
+    {
+        var texts = Directory.GetFiles(monstersDir, "*.cs").ToDictionary(f => Path.GetFileNameWithoutExtension(f), f => File.ReadAllText(f));
+        var result = new Dictionary<string, string>();
+        foreach ((string name, string text) in texts)
+        {
+            Match derived = Regex.Match(text, @"class\s+\w+\s*:\s*(?<base>\w+)");
+            result[name] = derived.Success && derived.Groups["base"].Value != "MonsterModel" && texts.TryGetValue(derived.Groups["base"].Value, out string? baseText)
+                ? text + "\n" + baseText
+                : text;
+        }
+        return result;
+    }
+
     /// <summary>"CorpseSlugsNormal" to "CORPSE_SLUGS_NORMAL" (the ids the Codex export and the mod use).</summary>
     public static string ToSnakeCase(string pascal) =>
         Regex.Replace(pascal, "(?<=[a-z0-9])(?=[A-Z])", "_").ToUpperInvariant();

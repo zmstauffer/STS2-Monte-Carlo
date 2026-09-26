@@ -152,6 +152,7 @@ public sealed partial class Combat
             foreach (int index in altStarts)
                 if (index >= 0 && index < Enemies.Count) Enemies[index].AltStart = true;
         foreach (Enemy e in Enemies) e.Start(this);
+        foreach (Enemy e in Enemies.ToList()) MonsterBehaviors.For(e.Def.Id)?.OnStart(this, e);
 
         StartPlayerTurn();
     }
@@ -452,6 +453,7 @@ public sealed partial class Combat
             return !enemy.Dying;
         }
         OnEnemyDamaged(enemy);
+        MonsterBehaviors.For(enemy.Def.Id)?.OnDamaged(this, enemy, lost);
         return false;
     }
 
@@ -483,6 +485,9 @@ public sealed partial class Combat
 
     private void OnEnemyDeath(Enemy e)
     {
+        // Some monsters refuse to die (the Decimillipede's segments come back); their behavior keeps the enemy down instead.
+        if (MonsterBehaviors.For(e.Def.Id)?.OnDeath(this, e) == true) return;
+
         if (e.Powers[(int)PowerKind.SteamEruption] > 0 && !e.Dying)
         {
             // The Waterfall Giant refuses to die: it becomes untouchable and explodes with all the pressure it built up.
@@ -494,6 +499,8 @@ public sealed partial class Combat
         }
         e.Hp = 0;
         RelicOnEnemyDeath();
+        foreach (Enemy ally in Enemies.ToList())
+            if (ally != e && ally.Alive) MonsterBehaviors.For(ally.Def.Id)?.OnAllyDeath(this, ally, e);
         if (e.Powers[(int)PowerKind.Infested] > 0 && _services?.Monster("WRIGGLER") is MonsterDef wriggler)
         {
             for (int i = 0; i < 4; i++)
@@ -532,6 +539,7 @@ public sealed partial class Combat
 
         foreach (Enemy e in Enemies.ToList())
         {
+            if (!e.Alive && e.Reviving && Result == CombatResult.Ongoing) MonsterBehaviors.For(e.Def.Id)?.OnDeadTurn(this, e);
             if (!e.Alive || Result != CombatResult.Ongoing) continue;
 
             e.Block = 0;
@@ -615,6 +623,7 @@ public sealed partial class Combat
             }
         }
         foreach (CardAdd add in move.Adds) AddCards(add);
+        MonsterBehaviors.For(e.Def.Id)?.OnMove(this, e, move);
 
         if (move.Id == "EXPLODE")
         {

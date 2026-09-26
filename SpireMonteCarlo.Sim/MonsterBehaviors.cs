@@ -30,11 +30,21 @@ public abstract class MonsterBehavior
 
     /// <summary>After the monster loses HP without dying.</summary>
     public virtual void OnDamaged(Combat combat, Enemy self, int hpLost) { }
+
+    /// <summary>Each enemy phase while the monster is down but due to come back (<see cref="Enemy.Reviving"/>).</summary>
+    public virtual void OnDeadTurn(Combat combat, Enemy self) { }
 }
 
 public static class MonsterBehaviors
 {
     private static readonly Dictionary<string, MonsterBehavior> Registry = new();
+
+    static MonsterBehaviors()
+    {
+        var segment = new DecimillipedeBehavior();
+        foreach (string id in new[] { "DECIMILLIPEDE_SEGMENT_FRONT", "DECIMILLIPEDE_SEGMENT_MIDDLE", "DECIMILLIPEDE_SEGMENT_BACK" })
+            Register(id, segment);
+    }
 
     public static MonsterBehavior? For(string monsterId) => Registry.GetValueOrDefault(monsterId);
 
