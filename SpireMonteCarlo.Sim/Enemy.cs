@@ -10,18 +10,22 @@ public sealed class Enemy
     public int Block { get; set; }
     public int[] Powers { get; } = new int[PowerRules.Count];
 
+    /// <summary>For monsters whose first move depends on a starter index (assigned per encounter).</summary>
+    public int StarterIndex { get; set; }
+
     /// <summary>The move it will make on its next turn (its visible intent). Null if the data had none.</summary>
     public MoveDef? Move { get; private set; }
 
     public string? LastMoveId { get; private set; }
     private string _stateId = "";
     private StateDef? _currentMoveState;
+    private HashSet<string>? _usedOnce;
 
     public bool Alive => Hp > 0;
 
     public void Start(Combat combat)
     {
-        _stateId = Def.InitialState;
+        _stateId = Def.StarterSwitch.Length > 0 ? Def.StarterSwitch[StarterIndex % Def.StarterSwitch.Length] : Def.InitialState;
         Plan(combat);
     }
 
@@ -37,9 +41,10 @@ public sealed class Enemy
     {
         string id = _stateId;
         Move = null;
-        for (int guard = 0; guard < 8 && Move == null; guard++)
+        _currentMoveState = null;
+        for (int guard = 0; guard < 8; guard++)
         {
-            if (!Def.States.TryGetValue(id, out StateDef? state)) break;
+            if (!Def.States.TryGetValue(id, out StateDef? state)) return;
             switch (state.Kind)
             {
                 case StateKind.Move:
@@ -54,34 +59,40 @@ public sealed class Enemy
                     break;
             }
         }
-        _currentMoveState = null;
     }
 
-    private string MoveStateFor(string? moveId) =>
-        Def.States.Values.FirstOrDefault(s => s.Kind == StateKind.Move && s.MoveId == moveId)?.Id ?? "";
+    private bool IsLastMove(string stateId) => Def.States.TryGetValue(stateId, out StateDef? s) && s.MoveId != null && s.MoveId == LastMoveId;
 
     private string ChooseRandom(StateDef state, Combat combat)
     {
-        // Codex gives no weights for random states, so pick uniformly and don't repeat the last move immediately.
-        List<string> options = state.Branches.Length > 0
-            ? state.Branches.Select(b => MoveStateFor(b.MoveId)).Where(s => s != "").ToList()
-            : Def.States.Values.Where(s => s.Kind == StateKind.Move).Select(s => s.Id).ToList();
-        if (options.Count > 1 && LastMoveId != null)
+        List<BranchDef> options = state.Branches.ToList();
+        if (options.Count == 0)
+            // No branch data: uniform over all moves, not repeating the last one.
+            options = Def.States.Values.Where(s => s.Kind == StateKind.Move).Select(s => new BranchDef { StateId = s.Id, Repeat = RepeatRule.CannotRepeat }).ToList();
+
+        var allowed = options.Where(b =>
+            !(b.Repeat == RepeatRule.CannotRepeat && IsLastMove(b.StateId)) &&
+            !(b.Repeat == RepeatRule.UseOnlyOnce && _usedOnce?.Contains(b.StateId) == true)).ToList();
+        if (allowed.Count == 0) allowed = options;
+        if (allowed.Count == 0) return "";
+
+        double total = allowed.Sum(b => b.Weight);
+        double roll = combat.Rng.NextDouble() * total;
+        BranchDef chosen = allowed[^1];
+        foreach (BranchDef b in allowed)
         {
-            var fresh = options.Where(o => Def.States[o].MoveId != LastMoveId).ToList();
-            if (fresh.Count > 0) options = fresh;
+            roll -= b.Weight;
+            if (roll < 0) { chosen = b; break; }
         }
-        return options.Count == 0 ? "" : options[combat.Rng.Next(options.Count)];
+        if (chosen.Repeat == RepeatRule.UseOnlyOnce) (_usedOnce ??= new()).Add(chosen.StateId);
+        return chosen.StateId;
     }
 
     private string ChooseConditional(StateDef state, Combat combat)
     {
         foreach (BranchDef branch in state.Branches)
-        {
-            bool? holds = Evaluate(branch.Condition, combat);
-            if (holds == true) return MoveStateFor(branch.MoveId);
-        }
-        return state.Branches.Length > 0 ? MoveStateFor(state.Branches[0].MoveId) : "";
+            if (Evaluate(branch.Condition, combat) == true) return branch.StateId;
+        return state.Branches.Length > 0 ? state.Branches[0].StateId : "";
     }
 
     /// <summary>Only understands the position conditions seen so far (IsAlone / IsFront); anything else is unknown.</summary>

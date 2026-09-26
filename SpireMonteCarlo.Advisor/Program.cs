@@ -8,6 +8,8 @@ using SpireMonteCarlo.Contracts;
 // advisor codex check <snapshot.json>|--latest   ids in a snapshot that the cache doesn't know
 if (args.Length > 0 && args[0] == "codex")
     return await CodexCommands.RunAsync(args.Skip(1).ToArray());
+if (args.Length > 0 && args[0] == "sim")
+    return SimCommands.Run(args.Skip(1).ToArray());
 
 string? path = args.Length == 1 && args[0] == "--latest" ? SnapshotFiles.FindLatest() : args.FirstOrDefault();
 if (path == null || !File.Exists(path))

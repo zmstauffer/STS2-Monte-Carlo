@@ -61,6 +61,14 @@ public sealed class Combat
             foreach ((PowerKind power, int amount) in def.Innate) enemy.Powers[(int)power] += amount;
             Enemies.Add(enemy);
         }
+        // Monsters whose first move depends on a starter index (slugs, rats, ...) get consecutive indices from a random start.
+        List<Enemy> starters = Enemies.Where(e => e.Def.StarterSwitch.Length > 0).ToList();
+        if (starters.Count > 0)
+        {
+            int k = starters[0].Def.StarterSwitch.Length;
+            int first = Rng.Next(k);
+            for (int j = 0; j < starters.Count; j++) starters[j].StarterIndex = (first + j) % k;
+        }
         foreach (Enemy e in Enemies) e.Start(this);
 
         StartPlayerTurn();

@@ -24,6 +24,14 @@ public static class CodexCommands
 
     private static async Task<int> UpdateAsync(CodexCache cache, string[] args)
     {
+        if (args.Contains("--encounter-stats-only"))
+        {
+            using var statsClient = new CodexClient(Environment.GetEnvironmentVariable("SPIRE_CODEX_API_KEY"));
+            await cache.UpdateEncounterStatsAsync(statsClient);
+            Console.WriteLine("Encounter stats refreshed.");
+            return 0;
+        }
+
         bool force = args.Contains("--force");
         int dirIndex = Array.IndexOf(args, "--game-dir");
         string gameDir = dirIndex >= 0 && dirIndex + 1 < args.Length ? args[dirIndex + 1] : DefaultGameDir;

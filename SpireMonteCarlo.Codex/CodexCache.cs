@@ -70,7 +70,7 @@ public sealed class CodexCache
             }
 
             log?.Invoke("Downloading encounter stats...");
-            Save(staging, "encounter_stats.json", await client.GetBytesAsync("runs/encounter-stats", ct), meta);
+            Save(staging, "encounter_stats.json", await DownloadEncounterStatsAsync(client, ct), meta);
 
             meta.Files.Sort(StringComparer.Ordinal);
             File.WriteAllText(Path.Combine(staging, "meta.json"), JsonSerializer.Serialize(meta, Json));
@@ -84,6 +84,31 @@ public sealed class CodexCache
         if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
         Directory.Move(staging, Root);
         return meta;
+    }
+
+    /// <summary>/runs/encounter-stats is paginated; merges every page into one {"encounters":[...]} document.</summary>
+    private static async Task<byte[]> DownloadEncounterStatsAsync(CodexClient client, CancellationToken ct)
+    {
+        var all = new List<JsonElement>();
+        for (int page = 1; ; page++)
+        {
+            byte[] bytes = await client.GetBytesAsync($"runs/encounter-stats?page={page}&limit=100", ct);
+            using JsonDocument doc = JsonDocument.Parse(bytes);
+            if (!doc.RootElement.TryGetProperty("encounters", out JsonElement rows))
+                return bytes;   // not the paginated shape; keep it as received
+            all.AddRange(rows.EnumerateArray().Select(r => r.Clone()));
+            bool hasNext = doc.RootElement.TryGetProperty("has_next", out JsonElement next) && next.ValueKind == JsonValueKind.True;
+            if (!hasNext || rows.GetArrayLength() == 0) break;
+        }
+        return JsonSerializer.SerializeToUtf8Bytes(new { encounters = all });
+    }
+
+    /// <summary>Refreshes only encounter_stats.json in the existing cache (no need to redownload the entity export).</summary>
+    public async Task UpdateEncounterStatsAsync(CodexClient client, CancellationToken ct = default)
+    {
+        byte[] data = await DownloadEncounterStatsAsync(client, ct);
+        Directory.CreateDirectory(Root);
+        File.WriteAllBytes(Path.Combine(Root, "encounter_stats.json"), data);
     }
 
     private static void Save(string dir, string relative, byte[] data, CodexMeta meta)
@@ -120,6 +145,37 @@ public sealed class CodexCache
 
     public IReadOnlyList<CodexEncounter> LoadEncounters() =>
         Read<List<CodexEncounter>>(Path.Combine("export", "encounters.json"));
+
+    /// <summary>Encounter lineups extracted from the decompiled game (see <see cref="DecompiledExtractor"/>), or null if not extracted yet.</summary>
+    public DecompiledExtractor.EncounterExtraction? LoadEncounterLineups()
+    {
+        string path = Path.Combine(Root, "game", "encounter_lineups.json");
+        return File.Exists(path) ? JsonSerializer.Deserialize<DecompiledExtractor.EncounterExtraction>(File.ReadAllText(path), Json) : null;
+    }
+
+    public void SaveEncounterLineups(DecompiledExtractor.EncounterExtraction extraction)
+    {
+        string dir = Path.Combine(Root, "game");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "encounter_lineups.json"), JsonSerializer.Serialize(extraction, Json));
+    }
+
+    public IReadOnlyDictionary<string, CodexCharacter> LoadCharacters() =>
+        Read<List<CodexCharacter>>(Path.Combine("export", "characters.json")).ToDictionary(c => c.Id, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Monster move state machines extracted from the decompiled game (see <see cref="MonsterAiExtractor"/>), or null if not extracted yet.</summary>
+    public Dictionary<string, ExtractedMachine>? LoadMonsterAi()
+    {
+        string path = Path.Combine(Root, "game", "monster_ai.json");
+        return File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, ExtractedMachine>>(File.ReadAllText(path), Json) : null;
+    }
+
+    public void SaveMonsterAi(Dictionary<string, ExtractedMachine> machines)
+    {
+        string dir = Path.Combine(Root, "game");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "monster_ai.json"), JsonSerializer.Serialize(machines, Json));
+    }
 
     /// <summary>Base-card (non-upgraded) metric rows by id for one bracket, e.g. "wr50".</summary>
     public IReadOnlyDictionary<string, CodexMetricRow> LoadMetrics(string type, string bracket) =>

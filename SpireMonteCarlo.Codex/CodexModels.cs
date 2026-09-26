@@ -172,3 +172,15 @@ public sealed class CodexEncounter
     /// <summary>The monster pool; some encounters (e.g. slimes) spawn only a subset.</summary>
     public List<CodexEncounterMonster> Monsters { get; set; } = new();
 }
+
+public sealed class CodexCharacter
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int StartingHp { get; set; }
+    public int StartingGold { get; set; }
+    public int MaxEnergy { get; set; }
+    /// <summary>Class names, e.g. "StrikeIronclad"; <see cref="DecompiledExtractor.ToSnakeCase"/> turns them into card ids.</summary>
+    public List<string> StartingDeck { get; set; } = new();
+    public List<string> StartingRelics { get; set; } = new();
+}

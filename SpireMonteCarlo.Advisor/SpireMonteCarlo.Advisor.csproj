@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SpireMonteCarlo.Contracts\SpireMonteCarlo.Contracts.csproj" />
     <ProjectReference Include="..\SpireMonteCarlo.Codex\SpireMonteCarlo.Codex.csproj" />
+    <ProjectReference Include="..\SpireMonteCarlo.Sim\SpireMonteCarlo.Sim.csproj" />
   </ItemGroup>
 
 </Project>
