@@ -223,7 +223,7 @@ public static class FightSimulator
             if (!e.Alive) continue;
             string powers = string.Join(" ", Enum.GetValues<PowerKind>().Where(p => e.Powers[(int)p] != 0).Select(p => $"{p}{e.Powers[(int)p]}"));
             string move = e.Stunned ? "STUNNED" : e.Move == null ? "no move"
-                : $"{e.Move.Id}{(c.IntendsAttack(e) ? $" {(e.Move.Id == "EXPLODE" ? 1 : e.Move.HitsAt(c.Ascension))}x{c.EnemyAttackDamage(c.MoveBaseDamage(e), e)}" : "")}{(e.Move.Block > 0 ? $" +{e.Move.Block}blk" : "")}{(e.Move.Adds.Length > 0 ? $" +{string.Join("/", e.Move.Adds.Select(a => $"{a.CountAt(c.Ascension)} {a.CardId}"))}" : "")}";
+                : $"{e.Move.Id}{(c.IntendsAttack(e) ? $" {(e.Move.Id == "EXPLODE" ? 1 : c.MoveHits(e, e.Move))}x{c.EnemyAttackDamage(c.MoveBaseDamage(e), e)}" : "")}{(e.Move.Block > 0 ? $" +{e.Move.Block}blk" : "")}{(e.Move.Adds.Length > 0 ? $" +{string.Join("/", e.Move.Adds.Select(a => $"{a.CountAt(c.Ascension)} {a.CardId}"))}" : "")}";
             trace($"    {e.Def.Id}#{e.Index} {e.Hp}/{e.MaxHp}hp {e.Block}b [{powers}] intends {move}");
         }
     }

@@ -252,9 +252,13 @@ public sealed class CardDef
         c.FreeThisTurn = FreeThisTurn;
         c.EnchantUsed = EnchantUsed; c.ExtraEthereal = ExtraEthereal; c.ExtraRetain = ExtraRetain; c.FreeThisCombat = FreeThisCombat; c.RandomCost = RandomCost; c.Replay = Replay;
         c.UpgradedInCombat = UpgradedInCombat;
+        c.DampenedFrom = DampenedFrom;
         c.Tag = Tag;
         return c;
     }
+
+    /// <summary>The upgraded card this copy stands in for while the Magi Knight's Dampen lasts (null otherwise).</summary>
+    public CardDef? DampenedFrom { get; set; }
 
     /// <summary>Marks a card so a planner can recognise it on a cloned combat (0 = unmarked).</summary>
     public int Tag { get; set; }

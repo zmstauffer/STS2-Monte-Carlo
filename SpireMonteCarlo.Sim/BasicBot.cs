@@ -792,7 +792,7 @@ public sealed class BasicBot
                 return amount * 4;
             case PowerKind.TempStrengthDown:
                 {
-                    int hits = enemy.Move is { IsAttack: true } m ? m.HitsAt(combat.Ascension) : 0;
+                    int hits = enemy.Move is { IsAttack: true } m ? combat.MoveHits(enemy, m) : 0;
                     return Math.Min(amount, 12) * hits * 0.9 + 0.5;
                 }
             default:

@@ -107,7 +107,14 @@ public sealed class ActRollout
     // act in the decision log match real A10 Ironclad survival (61% Act 2, 84% Act 3) at 1.71 (4 runs) and 1.72 (2 runs), and replaying the
     // 23 real Act 2 fights matches the HP they really cost at 1.82 (rooms weighted like an act). The old 3.0 gave real decks ~99% survival
     // from mid-act, so every Act 2 option came out "about equal". Act 1's 1.56 agrees with the same anchor (1.61 from the four real starts).
-    public const double RealDeckScaleAct2 = 1.75, RealDeckScaleAct3 = 1.75;
+    public const double RealDeckScaleAct2 = 1.75;
+
+    // Act 3, after its bosses' mechanics went in (the Test Subject's three forms, the Queen's Chains of Binding and Enrage, Aeonglass's growing
+    // Strength and Withers, Dampen, Possess): with the owner's real Act 3 decks the simulated HP lost per boss and elite matches the real
+    // Ironclad averages at 1.75 (Test Subject 76 vs 84, Queen 79 vs 75, Aeonglass 71 vs 79; Knights too hard, 61 vs 34), but whole-act survival
+    // (two bosses at A10) only reaches the real 84% at 3.5 on the two real Act 3 starts, whose decks disagree widely (86% and 53% at 3.0).
+    // 3.0 sits between the two anchors within that noise; re-fit with sim calibrate-real --survival --act 3 as more Act 3 runs are logged.
+    public const double RealDeckScaleAct3 = 3.0;
 
     /// <summary>
     /// The HP scale used in the next-act probe. Act 2 enemies hit harder than the Act 1 scale can absorb for a deck that has

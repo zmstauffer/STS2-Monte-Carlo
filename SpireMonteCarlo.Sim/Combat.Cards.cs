@@ -125,6 +125,7 @@ public sealed partial class Combat
     {
         CardDef card = Hand[handIndex];
         if (!CanPlay(card)) throw new InvalidOperationException($"Cannot play {card} with {Energy} energy.");
+        OnPlayedFromHand(card);
         Hand.RemoveAt(handIndex);
 
         int cost = EffectiveCost(card);
@@ -194,6 +195,7 @@ public sealed partial class Combat
 
             CardsPlayed++;
             CardsPlayedThisTurn++;
+            WitheringPresenceAfterPlay();
             foreach (Enemy e in Enemies)
                 if (e.Powers[(int)PowerKind.Slow] > 0) e.SlowCards++;
             if (card.Kind == CardKind.Attack && PlayerPowers[(int)PowerKind.Rage] > 0) GainBlockRaw(PlayerPowers[(int)PowerKind.Rage]);
@@ -529,6 +531,7 @@ public sealed partial class Combat
         CardDef card = DrawPile[^1];
         DrawPile.RemoveAt(DrawPile.Count - 1);
         Hand.Add(card);
+        BindOnDraw(card);
         if (PlayerPowers[(int)PowerKind.Confused] > 0 && card.Cost >= 0) card.RandomCost = Rng.Next(4);
         EnchantOnDraw(card);
         OnCardDrawn(card);

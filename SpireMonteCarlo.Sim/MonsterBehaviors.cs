@@ -50,6 +50,12 @@ public static class MonsterBehaviors
         Register("ROCKET", new CrabRageBehavior());
         Register("BOWLBUG_ROCK", new BowlbugRockBehavior());
         Register("THIEVING_HOPPER", new ThievingHopperBehavior());
+        Register("TEST_SUBJECT", new TestSubjectBehavior());
+        Register("QUEEN", new QueenBehavior());
+        Register("AEONGLASS", new AeonglassBehavior());
+        Register("MAGI_KNIGHT", new MagiKnightBehavior());
+        Register("THE_LOST", new PossessBehavior(PowerKind.Strength, "DEBILITATING_SMOG"));
+        Register("THE_FORGOTTEN", new PossessBehavior(PowerKind.Dexterity, "MIASMA"));
         var segment = new DecimillipedeBehavior();
         foreach (string id in new[] { "DECIMILLIPEDE_SEGMENT_FRONT", "DECIMILLIPEDE_SEGMENT_MIDDLE", "DECIMILLIPEDE_SEGMENT_BACK" })
             Register(id, segment);

@@ -87,6 +87,7 @@ public sealed partial class Combat
         Stakes = src.Stakes;
         HpScale = src.HpScale;
         CopyRelicState(src);
+        CopyAct3State(src);
         Hp = src.Hp; MaxHp = src.MaxHp; Block = src.Block; Energy = src.Energy; Turn = src.Turn;
         Array.Copy(src.PlayerPowers, PlayerPowers, PlayerPowers.Length);
         // Cards in the hand are the ones a play can change in place; the other piles only ever have cards moved between them, so a
@@ -197,7 +198,7 @@ public sealed partial class Combat
         if (Has(RelicKind.VelvetChoker) && _rr.HandPlaysThisTurn >= 6) return false;
         if (PlayerPowers[(int)PowerKind.Smoggy] > 0 && card.Kind == CardKind.Skill && _skillsThisTurn >= 1) return false;
         int cost = EffectiveCost(card);
-        return (cost == CardDef.XCost || cost <= Energy) && CardRulesAllowPlay(card);
+        return (cost == CardDef.XCost || cost <= Energy) && CardRulesAllowPlay(card) && BoundAllows(card);
     }
 
     /// <summary>Whether the card could be played if energy were no object (the bot asks this to see what spare energy would buy).</summary>
@@ -206,7 +207,7 @@ public sealed partial class Combat
         if (Result != CombatResult.Ongoing || card.Cost == CardDef.Unplayable) return false;
         if (PlayerPowers[(int)PowerKind.Ringing] > 0 && CardsPlayedThisTurn >= 1) return false;
         if (PlayerPowers[(int)PowerKind.Smoggy] > 0 && card.Kind == CardKind.Skill && _skillsThisTurn >= 1) return false;
-        return CardRulesAllowPlay(card);
+        return CardRulesAllowPlay(card) && BoundAllows(card);
     }
 
     /// <summary>Damage one attack of <paramref name="baseDamage"/> would deal to <paramref name="target"/> right now (null: ignore the target's powers).</summary>
@@ -258,11 +259,12 @@ public sealed partial class Combat
         if (move == null) return 0;
         if (move.Id == "EXPLODE") return e.ExplodeDamage;
         int damage = move.DamageAt(Ascension);
+        if (move.Id == "DREAD") damage += e.Powers[(int)PowerKind.Dexterity];   // The Forgotten hits harder with the Dexterity it took
         return move.Id == "PRESSURE_GUN" ? damage + e.GunBonus : damage;
     }
 
     /// <summary>Damage the enemy's visible move will do to the player if nothing is blocked.</summary>
-    public int IntentDamage(Enemy e) => !IntendsAttack(e) ? 0 : (e.Move!.Id == "EXPLODE" ? 1 : e.Move.HitsAt(Ascension)) * EnemyAttackDamage(MoveBaseDamage(e), e);
+    public int IntentDamage(Enemy e) => !IntendsAttack(e) ? 0 : (e.Move!.Id == "EXPLODE" ? 1 : MoveHits(e, e.Move)) * EnemyAttackDamage(MoveBaseDamage(e), e);
 
     /// <summary>Total damage the enemies' visible intents will do to the player if nothing is blocked.</summary>
     public int IncomingDamage() => Enemies.Where(e => e.Alive).Sum(IntentDamage);
@@ -273,6 +275,7 @@ public sealed partial class Combat
     public void EndPlayerTurn(bool startNextTurn = true)
     {
         if (Result != CombatResult.Ongoing) return;
+        ClearBound();
 
         // Powers that pay out as the turn ends.
         bool hadNoBlock = Block == 0;
@@ -306,7 +309,7 @@ public sealed partial class Combat
         // Status cards still in hand hurt (Burn, Infection, Toxic, ...).
         foreach (CardDef card in Hand.ToList())
         {
-            if (card.EndTurnDamage > 0) HitPlayer(card.EndTurnDamage, null);
+            if (card.EndTurnDamage > 0) HitPlayer(card.EndTurnDamage + WitherBonus(card), null);
             if (card.EndTurnHpLoss > 0) LoseHp(card.EndTurnHpLoss);
         }
         if (Result != CombatResult.Ongoing) return;
@@ -675,7 +678,7 @@ public sealed partial class Combat
             }
         }
 
-        int hits = move.Id == "EXPLODE" ? (e.ExplodeDamage > 0 ? 1 : 0) : (move.IsAttack ? move.HitsAt(Ascension) : 0);
+        int hits = move.Id == "EXPLODE" ? (e.ExplodeDamage > 0 ? 1 : 0) : (move.IsAttack ? MoveHits(e, move) : 0);
         int baseDamage = MoveBaseDamage(e);
         int hpBeforeAttack = Hp, throughBlock = 0;
         for (int h = 0; h < hits && Result == CombatResult.Ongoing && e.Alive; h++)
@@ -690,7 +693,8 @@ public sealed partial class Combat
         if (move.Id == "PRESSURE_GUN") e.GunBonus += 5;
         if (!e.Alive && !e.Dying) return;
 
-        e.Block += move.BlockAt(Ascension);
+        int moveBlock = move.BlockAt(Ascension);
+        if (moveBlock > 0) e.Block += Math.Max(0, moveBlock + e.Powers[(int)PowerKind.Dexterity]);   // Dexterity counts for monsters too (The Forgotten)
         foreach (MovePower p in move.Powers)
         {
             int amount = p.AmountAt(Ascension);
@@ -729,7 +733,7 @@ public sealed partial class Combat
     {
         if (Result != CombatResult.Ongoing) return;
         if (Hp <= 0) Result = CombatResult.Lost;
-        else if (!Enemies.Any(e => e.Alive && e.Primary))
+        else if (!Enemies.Any(e => (e.Alive || HoldsFight(e)) && e.Primary))
         {
             Result = CombatResult.Won;
             RelicAfterVictory();

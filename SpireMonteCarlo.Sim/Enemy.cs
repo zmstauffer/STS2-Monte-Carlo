@@ -53,6 +53,9 @@ public sealed class Enemy
     /// <summary>Dead for now but will heal to full on its next turn (Illusion).</summary>
     public bool Reviving { get; set; }
 
+    /// <summary>Hits its attacks have gained during the fight (the Test Subject's Multi Claw adds one each time).</summary>
+    public int ExtraHits { get; set; }
+
     /// <summary>A card attack hit it this play and it will gain its Curl Up block once the card is done.</summary>
     public bool CurlUpPending { get; set; }
 
@@ -73,7 +76,7 @@ public sealed class Enemy
             Def = Def, Index = Index, Hp = Hp, MaxHp = MaxHp, Block = Block, StarterIndex = StarterIndex, AltStart = AltStart,
             RitualSkip = RitualSkip, SlowCards = SlowCards, SkittishUsed = SkittishUsed, ShellDamage = ShellDamage, Dying = Dying,
             ExplodeDamage = ExplodeDamage, GunBonus = GunBonus, SlotName = SlotName, Escaped = Escaped, Reviving = Reviving,
-            HeistGold = HeistGold, Move = Move, Stunned = Stunned, LastMoveId = LastMoveId,
+            HeistGold = HeistGold, Move = Move, Stunned = Stunned, LastMoveId = LastMoveId, ExtraHits = ExtraHits,
         };
         Array.Copy(Powers, e.Powers, Powers.Length);
         foreach (var kv in State) e.State[kv.Key] = kv.Value;
