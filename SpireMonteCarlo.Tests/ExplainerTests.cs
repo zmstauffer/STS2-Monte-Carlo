@@ -60,11 +60,11 @@ public class ExplainerTests
     }
 
     [Fact]
-    public void AnOptionIsAboutEqualToTheBestWhenTheGapIsNoiseOrUnderOnePoint()
+    public void AnOptionIsAboutEqualToTheBestWhenTheGapIsNoiseOrUnderHalfAPoint()
     {
         Assert.True(new OptionReport { Label = "best", DeltaVsBest = 0 }.AboutEqualToBest);
         Assert.True(new OptionReport { Label = "noisy", DeltaVsBest = -0.03, DeltaVsBestSe = 0.02 }.AboutEqualToBest);
-        Assert.True(new OptionReport { Label = "tiny", DeltaVsBest = -0.008, DeltaVsBestSe = 0.001 }.AboutEqualToBest);
+        Assert.True(new OptionReport { Label = "tiny", DeltaVsBest = -0.004, DeltaVsBestSe = 0.001 }.AboutEqualToBest);
         Assert.False(new OptionReport { Label = "worse", DeltaVsBest = -0.05, DeltaVsBestSe = 0.01 }.AboutEqualToBest);
     }
 }

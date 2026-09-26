@@ -131,6 +131,9 @@ public sealed class RewardPool
         return candidates.Count == 0 ? null : candidates[rng.Next(candidates.Count)];
     }
 
+    /// <summary>The character's own cards of one rarity (the reward pool).</summary>
+    public IReadOnlyList<string> OfRarity(CardRarity rarity) => _byRarity[rarity];
+
     public double Elo(string cardId) => _elo.TryGetValue(cardId, out double e) ? e : DefaultElo;
 
     public bool HasElo(string cardId) => _elo.ContainsKey(cardId);

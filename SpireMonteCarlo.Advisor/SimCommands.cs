@@ -16,6 +16,7 @@ public static class SimCommands
             case "fight": return Fight(args.Skip(1).ToArray());
             case "bench": return Load() is { } benchData ? TuneCommand.Bench(args.Skip(1).ToArray(), benchData) : 1;
             case "tune": return Load() is { } tuneData ? TuneCommand.Tune(args.Skip(1).ToArray(), tuneData) : 1;
+            case "cardvalue": return Load() is { } cvData ? CardValueCommand.Run(args.Skip(1).ToArray(), cvData) : 1;
             case "fitleaf": return Load() is { } fitData ? FitLeafCommand.Run(args.Skip(1).ToArray(), fitData) : 1;
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
             case "calibrate-run": return CalibrateRun(args.Skip(1).ToArray());
@@ -241,6 +242,61 @@ public static class SimCommands
     }
 
     /// <summary>Carries the runs that beat Act 1 (with the deck, relics, potions, gold and HP they ended it with) through Act 2 and compares with the real Act 2 numbers.</summary>
+    /// <summary>
+    /// How the end-of-Act-1 deck test predicts surviving Act 2: survival by deck-strength fifth, and a logistic fit on deck strength and
+    /// the share of HP carried in. This is what the deck test is worth over the next act (it sets <see cref="AdviceEngine"/>'s weights).
+    /// </summary>
+    private static void PrintStrengthVsNextAct(RolloutResult[] act1, RolloutResult[] act2)
+    {
+        var rows = act1.Zip(act2).Where(p => !double.IsNaN(p.First.DeckStrength))
+            .Select(p => (Strength: p.First.DeckStrength, Hp: p.First.End!.Hp / Math.Max(1e-9, p.First.End.MaxHp), Won: p.Second.Survived ? 1.0 : 0.0)).ToList();
+        if (rows.Count < 50) return;
+        var sorted = rows.OrderBy(r => r.Strength).ToList();
+        Console.Write("Act 2 survival by end-of-Act-1 deck strength (fifths):");
+        for (int q = 0; q < 5; q++)
+        {
+            var part = sorted.Skip(q * sorted.Count / 5).Take(sorted.Count / 5).ToList();
+            Console.Write($"  {part.Average(r => r.Strength):F2}: {100 * part.Average(r => r.Won):F0}%");
+        }
+        Console.WriteLine();
+        // Logistic regression by Newton's method on (1, strength, hp share).
+        double[] w = new double[3];
+        for (int it = 0; it < 30; it++)
+        {
+            var g = new double[3];
+            var h = new double[3, 3];
+            foreach (var r in rows)
+            {
+                double[] x = { 1, r.Strength, r.Hp };
+                double p = 1 / (1 + Math.Exp(-(w[0] + w[1] * x[1] + w[2] * x[2])));
+                for (int a = 0; a < 3; a++)
+                {
+                    g[a] += (r.Won - p) * x[a];
+                    for (int b = 0; b < 3; b++) h[a, b] += p * (1 - p) * x[a] * x[b];
+                }
+            }
+            double[] step = Solve3(h, g);
+            for (int a = 0; a < 3; a++) w[a] += step[a];
+        }
+        double mean = rows.Average(r => r.Won);
+        Console.WriteLine($"logit P(survive Act 2) = {w[0]:F2} + {w[1]:F2} x strength + {w[2]:F2} x HP share;  at the average ({100 * mean:F0}% survive) +0.1 strength is worth {100 * 0.1 * w[1] * mean * (1 - mean):F1} points of Act 2 survival, +10% HP {100 * 0.1 * w[2] * mean * (1 - mean):F1}");
+    }
+
+    private static double[] Solve3(double[,] a, double[] b)
+    {
+        double Det(double[,] m) => m[0, 0] * (m[1, 1] * m[2, 2] - m[1, 2] * m[2, 1]) - m[0, 1] * (m[1, 0] * m[2, 2] - m[1, 2] * m[2, 0]) + m[0, 2] * (m[1, 0] * m[2, 1] - m[1, 1] * m[2, 0]);
+        double d = Det(a);
+        var x = new double[3];
+        if (Math.Abs(d) < 1e-12) return x;
+        for (int c = 0; c < 3; c++)
+        {
+            var m = (double[,])a.Clone();
+            for (int r = 0; r < 3; r++) m[r, c] = b[r];
+            x[c] = Det(m) / d;
+        }
+        return x;
+    }
+
     private static void RunAct2(SimData data, IReadOnlyDictionary<string, CodexEncounterStat> stats, RolloutResult[] act1, string mapPath, int ascension, string[] args)
     {
         double Number(string name, double fallback) => double.Parse(Option(args, name) ?? fallback.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture);
@@ -287,6 +343,7 @@ public static class SimCommands
         Console.WriteLine();
         Console.WriteLine($"=== Act 2, for the {n} runs that beat Act 1 (HP scale {rollout.PlayerHpScale:F2}) ===");
         Console.WriteLine($"survive {100.0 * results.Count(r => r.Survived) / Math.Max(1, n):F1}%   start: deck {survivors.Average(r => r.DeckSize):F1} cards, HP {survivors.Average(r => r.End!.Hp):F0}/{survivors.Average(r => r.End!.MaxHp):F0}, {survivors.Average(r => r.End!.Gold):F0} gold");
+        PrintStrengthVsNextAct(survivors, results);
         Console.WriteLine($"At the end: deck {results.Average(r => r.DeckSize):F1} cards, {results.Average(r => r.UpgradedCards):F1} upgraded");
         var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
         if (probed.Count > 0) Console.WriteLine($"Deck test (Act 2 elites and boss): {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won, {(double)probed.Sum(r => r.ProbeHpLost) / probed.Sum(r => r.ProbeFights):F1} HP lost per fight, strength {probed.Average(r => r.DeckStrength):F2}");

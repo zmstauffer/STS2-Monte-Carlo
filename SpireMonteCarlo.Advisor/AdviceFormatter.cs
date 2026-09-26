@@ -56,7 +56,8 @@ public static class AdviceFormatter
         sb.AppendLine();
 
         int width = Math.Clamp(report.Options.Max(o => Readable(o.Label).Length), 12, 90);
-        sb.AppendLine($"  {"option".PadRight(width)}  {"vs best",-14} {"survive act",11} {"HP left*",9} {(test ? "deck test**" : ""),13}");
+        bool later = report.Options.Any(o => Math.Abs(o.LongTermPoints) >= 0.05);
+        sb.AppendLine($"  {"option".PadRight(width)}  {"vs best",-14} {"survive act",11} {"HP left*",9} {(test ? "deck test**" : ""),13} {(later ? "later***" : "")}");
         foreach (OptionReport o in report.Options)
         {
             string verdict = o == report.Options[0] ? "best"
@@ -64,13 +65,15 @@ public static class AdviceFormatter
                 : $"{Points(o.PointsVsBest)} +/-{Points(2 * o.PointsVsBestSe)}";
             string hp = o.SurvivalRate > 0 ? $"{o.MeanHpEndIfSurvived:F0}" : "-";
             string deckTest = double.IsNaN(o.ProbeHpLost) ? "" : $"{o.ProbeHpLost:F0} HP/fight";
-            sb.AppendLine($"  {Readable(o.Label).PadRight(width)}  {verdict,-14} {100 * o.SurvivalRate,10:F1}% {hp,9} {deckTest,13}");
+            string laterText = later ? $"{o.LongTermPoints,+7:+0.0;-0.0;0.0}" : "";
+            sb.AppendLine($"  {Readable(o.Label).PadRight(width)}  {verdict,-14} {100 * o.SurvivalRate,10:F1}% {hp,9} {deckTest,13} {laterText}");
         }
         sb.AppendLine();
-        sb.AppendLine("  vs best: points behind the best option (10 points is worth about 10% more chance of surviving the act; HP left and the");
-        sb.AppendLine("  deck test count too); +/- is the noise; \"~ equal\" means within the noise or under 1 point, too close to call.");
+        sb.AppendLine("  vs best: percentage points of the chance to win the run, behind the best option. The rest of this act is simulated; what");
+        sb.AppendLine("  follows is predicted from the end-of-act deck test and HP; +/- is the noise; \"~ equal\" means too close to call.");
         sb.AppendLine("  * HP at the end of the act, in the futures that survive it.");
         if (test) sb.AppendLine("  ** HP the end-of-act deck loses per test fight; lower means a stronger deck for what comes next.");
+        if (later) sb.AppendLine("  *** points from the cards' worth after this act (real players' ratings), already included in \"vs best\".");
         sb.AppendLine();
         sb.AppendLine("Why:");
         foreach (string line in Explainer.Explain(report)) sb.AppendLine($"  - {Readable(line)}");
@@ -114,6 +117,7 @@ public static class AdviceFormatter
             PointsVsBest = Math.Round(o.PointsVsBest, 1),
             PointsVsBestUncertainty = Math.Round(2 * o.PointsVsBestSe, 1),
             AboutEqualToBest = o.AboutEqualToBest,
+            LongTermPoints = Math.Round(o.LongTermPoints, 1),
             DeltaScore = Math.Round(o.DeltaValue, 3),
             DeltaScoreUncertainty = Math.Round(2 * o.DeltaValueSe, 3),
             Clear = !o.IsBaseline && o.ClearlyDifferentFromSkip,

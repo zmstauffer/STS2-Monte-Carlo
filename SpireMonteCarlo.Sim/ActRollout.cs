@@ -654,6 +654,11 @@ public sealed class ActRollout
         // A decision right after the boss (its card reward) has no act left to play: only the deck test tells the options apart.
         if (_points.TryGetValue(at, out MapPointSnapshot? current) && current.Type == "Boss")
         {
+            endState = new RolloutStart
+            {
+                Deck = deck.ToList(), Hp = PostBossHp() / PlayerHpScale, MaxHp = maxHp / PlayerHpScale, Gold = gold,
+                Relics = owned.ToList(), Potions = potions.Select(p => p.Id).ToList(),
+            };
             Probe();
             return Result(true);
         }

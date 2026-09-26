@@ -65,6 +65,9 @@ public sealed class AdviceOption
     public double PointsVsBestUncertainty { get; set; }
     public bool AboutEqualToBest { get; set; }
 
+    /// <summary>Points from the option's cards' worth after the current act (real players' ratings), already included in <see cref="PointsVsBest"/>.</summary>
+    public double LongTermPoints { get; set; }
+
     /// <summary>Overall score difference from the baseline, its uncertainty (about two standard errors), and whether it is clearly not noise.</summary>
     public double DeltaScore { get; set; }
     public double DeltaScoreUncertainty { get; set; }

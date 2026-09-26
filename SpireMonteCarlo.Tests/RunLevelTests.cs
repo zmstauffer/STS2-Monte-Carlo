@@ -153,4 +153,27 @@ public class AdviceEngineTests
         Assert.Equal(0.75, Result(1.0).DeckStrength, 6);
         Assert.Equal(0.0, AdviceEngine.ValueOf(new RolloutResult(false, 0, 80, 3, 4, "X", 0, new List<string>(), log, 0, 0)));
     }
+
+    [Fact]
+    public void TheShareOfTheRunAfterThisActGrowsThroughTheActAndIsZeroInActThree()
+    {
+        Assert.Equal(34.0 / 50, AdviceEngine.ShareAfterThisAct(new SpireMonteCarlo.Contracts.RunInfo { Act = 1, TotalFloor = 1 }), 6);
+        Assert.Equal(1.0, AdviceEngine.ShareAfterThisAct(new SpireMonteCarlo.Contracts.RunInfo { Act = 1, TotalFloor = 17 }), 6);
+        Assert.Equal(17.0 / 33, AdviceEngine.ShareAfterThisAct(new SpireMonteCarlo.Contracts.RunInfo { Act = 2, TotalFloor = 18 }), 6);
+        Assert.Equal(0.0, AdviceEngine.ShareAfterThisAct(new SpireMonteCarlo.Contracts.RunInfo { Act = 3, TotalFloor = 40 }), 6);
+    }
+
+    [Fact]
+    public void ARolloutIsWorthMoreWithAStrongerDeckAndMoreHpAndNothingIfItDied()
+    {
+        var log = new List<FightLogEntry>();
+        RolloutResult Result(double loss, double hp) => new(true, (int)(80 * hp), 80, 8, 8, null, 0, new List<string>(), log, ProbeFights: 4, ProbeWins: 4,
+            End: new RolloutStart { Deck = new List<CardDef>(), Hp = 80 * hp, MaxHp = 80 }, ProbeLoss: loss);
+        foreach (int act in new[] { 1, 2 })
+        {
+            Assert.True(AdviceEngine.ValueOf(Result(1.0, 0.8), act) > AdviceEngine.ValueOf(Result(2.0, 0.8), act));
+            Assert.True(AdviceEngine.ValueOf(Result(2.0, 0.9), act) > AdviceEngine.ValueOf(Result(2.0, 0.5), act));
+            Assert.InRange(AdviceEngine.ValueOf(Result(2.0, 0.8), act), 0.0, 1.0);
+        }
+    }
 }

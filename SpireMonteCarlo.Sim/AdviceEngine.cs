@@ -27,14 +27,14 @@ public sealed class OptionReport
     /// <summary>Value compared with the best option on the same futures (0 for the best itself, negative for the rest) and its standard error.</summary>
     public double DeltaVsBest { get; init; }
     public double DeltaVsBestSe { get; init; }
-    /// <summary>What a surviving future is worth on average in this decision, so that value differences read as survival points.</summary>
-    public double PointScale { get; init; } = 1;
     /// <summary>
-    /// The gap to the best option in points: 100 times the value gap over what a surviving future is worth, so an option that only
-    /// changes the chance of surviving the act by 10% is about 10 points; HP left and the deck test move it too.
+    /// The gap to the best option in points: percentage points of the chance to win the run as the advisor models it (see
+    /// <see cref="AdviceEngine.ValueOf"/>).
     /// </summary>
-    public double PointsVsBest => 100 * DeltaVsBest / PointScale;
-    public double PointsVsBestSe => 100 * DeltaVsBestSe / PointScale;
+    public double PointsVsBest => 100 * DeltaVsBest;
+    public double PointsVsBestSe => 100 * DeltaVsBestSe;
+    /// <summary>The part of this option's value that comes from its cards' worth later in the run (real players' ratings), in points.</summary>
+    public double LongTermPoints { get; init; }
     /// <summary>
     /// The best option, or one whose gap to it is within about two standard errors (the simulations can't tell them apart) or under
     /// <see cref="AdviceEngine.MeaningfulPoints"/> (a real difference, but too small to matter next to how far the model is from the game).
@@ -87,23 +87,69 @@ public sealed record DecisionOption(string Label, string? CardId, RolloutStart S
 
 public static class AdviceEngine
 {
-    /// <summary>How much the deck test counts next to surviving the act (which counts 1).</summary>
-    public const double DeckTestWeight = 1.0;
-
     /// <summary>The smallest gap (in points) reported as a real difference between two options.</summary>
-    public const double MeaningfulPoints = 1.0;
+    public const double MeaningfulPoints = 0.5;
+
+    // How the end-of-Act-1 deck predicts surviving Act 2, fit by logistic regression on chained runs (sim calibrate-run --maps 200 --act2,
+    // 4000 Act 1 survivors): logit P = -6.27 + 5.50 x deck strength + 4.63 x share of HP carried in (after the Ancient's heal). Survival
+    // by deck-strength fifth was 39/52/65/75/83%.
+    private const double NextActIntercept = -6.27, StrengthSlope = 5.50, HpSlope = 4.63;
+
+    // Act 3 isn't modelled well enough to simulate, so the chance of winning it uses the same sensitivity to deck strength, centred on
+    // the real rate: A10 Ironclads win 33.4% of runs and survive Acts 1 and 2 about 65% and 61% of the time, so ~84% of those who reach
+    // Act 3 win it. Centred on the average end-of-Act-1 deck (0.49) for Act 1 decisions and on the average end-of-Act-2 deck (0.69,
+    // tested against the same Act 2 fights) for Act 2 decisions.
+    private const double Act3WinRate = 0.84, Act1DeckStrength = 0.49, Act2DeckStrength = 0.69, Act2HpShare = 0.9;
+
+    // A card's worth later in the run, from real players' ratings: across 82 Ironclad cards in the A10 bracket each +100 Codex Elo goes
+    // with +3.1 points of run win rate (r = 0.61). Part of that is stronger players picking better cards, so half of it is counted, against
+    // the Elo of skipping at the deck's size (the reward policy's own skip rule), and only for the share of the run after the current act.
+    public const double LongTermPointsPerElo = 0.0157;
+
+    private static double Logistic(double x) => 1 / (1 + Math.Exp(-x));
+    private static double Logit(double p) => Math.Log(p / (1 - p));
 
     /// <summary>
-    /// Value of one rollout: surviving the act counts 1; then HP left at its end (up to 0.5 for full HP); then the deck test (up to
-    /// <see cref="DeckTestWeight"/> for a deck that loses no HP in its test fights). The deck test is where scaling cards pay off and what
-    /// still tells options apart late in an act, when nearly every future survives it. Reports show value differences times 100 as
-    /// "points": one point is worth about one percent more chance of getting through the act.
+    /// Value of one rollout: the chance to win the rest of the run from where it ends. A future that dies scores 0. One that survives
+    /// the act scores the predicted chance of getting through what follows: for an Act 1 decision, Act 2 from the deck test and the HP
+    /// carried in, times Act 3 from the deck test; for an Act 2 decision, Act 3; in Act 3, surviving is winning. Points are 100 times
+    /// value differences: percentage points of that chance.
     /// </summary>
-    public static double ValueOf(RolloutResult r)
+    public static double ValueOf(RolloutResult r, int act = 1)
     {
         if (!r.Survived) return 0.0;
-        double value = 1.0 + 0.5 * r.HpEnd / r.MaxHp;
-        return r.ProbeFights > 0 ? value + DeckTestWeight * r.DeckStrength : value;
+        double hpShare = r.End != null && r.End.MaxHp > 0 ? r.End.Hp / r.End.MaxHp : (double)r.HpEnd / Math.Max(1, r.MaxHp);
+        if (act >= 3 || double.IsNaN(r.DeckStrength)) return 0.98 + 0.02 * hpShare;   // no test: surviving is what counts, HP breaks ties
+        double s = r.DeckStrength;
+        if (act == 1)
+        {
+            double act2 = Logistic(NextActIntercept + StrengthSlope * s + HpSlope * hpShare);
+            double act3 = Logistic(Logit(Act3WinRate) + StrengthSlope * (s - Act1DeckStrength));
+            return act2 * act3;
+        }
+        return Logistic(Logit(Act3WinRate) + StrengthSlope * (s - Act2DeckStrength) + HpSlope * (hpShare - Act2HpShare));
+    }
+
+    /// <summary>Share of the rest of the run that comes after the current act (acts are 17 floors, the run 3 acts).</summary>
+    public static double ShareAfterThisAct(RunInfo run)
+    {
+        int floorInAct = run.TotalFloor - 17 * (run.Act - 1);
+        double leftInAct = Math.Max(0, 17 - floorInAct), after = 17.0 * Math.Max(0, 3 - run.Act);
+        return after + leftInAct <= 0 ? 0 : after / (after + leftInAct);
+    }
+
+    /// <summary>What the cards an option adds to the deck are worth later in the run, in points (see <see cref="LongTermPointsPerElo"/>).</summary>
+    public static double LongTermPoints(SimData data, RunSnapshot snapshot, IEnumerable<CardDef> optionDeck)
+    {
+        RewardPool pool = data.PoolFor(snapshot.Run.Character);
+        var had = snapshot.Deck.GroupBy(c => c.Id).ToDictionary(g => g.Key, g => g.Count());
+        double skip = PickPolicy.SkipElo(snapshot.Deck.Count), total = 0;
+        foreach (CardDef c in optionDeck)
+        {
+            if (had.TryGetValue(c.Id, out int left) && left > 0) { had[c.Id] = left - 1; continue; }
+            if (pool.HasElo(c.Id)) total += LongTermPointsPerElo * (pool.Elo(c.Id) - skip);
+        }
+        return total * ShareAfterThisAct(snapshot.Run);
     }
 
     /// <summary>Compares taking each offered card against skipping, over many simulated futures of the act.</summary>
@@ -141,19 +187,22 @@ public static class AdviceEngine
             return fights.Count == 0 ? 0 : fights.Average(l => (double)l.HpLost);
         }
 
-        double[] skipValues = results[0].Select(ValueOf).ToArray();
         double[] skipSurvived = results[0].Select(r => r.Survived ? 1.0 : 0.0).ToArray();
         double[] skipHp = results[0].Select(r => (double)r.HpEnd).ToArray();
 
-        double[][] allValues = results.Select(rs => rs.Select(ValueOf).ToArray()).ToArray();
+        // Each option's value per future: the chance to win from where the future ends, plus (if it survived the act) what the option's
+        // cards are worth later in the run.
+        int act = snapshot.Run.Act;
+        double[] longTerm = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck)).ToArray();
+        double[][] allValues = results.Select((rs, j) => rs.Select(r => ValueOf(r, act) + (r.Survived ? longTerm[j] / 100 : 0)).ToArray()).ToArray();
         int bestIndex = Enumerable.Range(0, options.Count).MaxBy(j => allValues[j].Average());
-        double pointScale = allValues.SelectMany(v => v).Where(v => v > 0).DefaultIfEmpty(1.0).Average();
+        double[] skipValues = allValues[0];
 
         var reports = new List<OptionReport>();
         for (int j = 0; j < options.Count; j++)
         {
             RolloutResult[] rs = results[j];
-            double[] values = rs.Select(ValueOf).ToArray();
+            double[] values = allValues[j];
             double[] survived = rs.Select(r => r.Survived ? 1.0 : 0.0).ToArray();
             double[] hp = rs.Select(r => (double)r.HpEnd).ToArray();
             (double dSurv, double dSurvSe) = PairedDifference(survived, skipSurvived);
@@ -174,7 +223,7 @@ public static class AdviceEngine
                 MeanFightsWon = rs.Average(r => r.FightsWon),
                 ProbeWinRate = rs.Where(r => r.Survived && r.ProbeFights > 0).Select(r => (double)r.ProbeWins / r.ProbeFights).DefaultIfEmpty(double.NaN).Average(),
                 ProbeHpLost = rs.Where(r => r.Survived && r.ProbeFights > 0).Select(r => (double)r.ProbeHpLost / r.ProbeFights).DefaultIfEmpty(double.NaN).Average(),
-                DeltaVsBest = dBest, DeltaVsBestSe = dBestSe, PointScale = pointScale,
+                DeltaVsBest = dBest, DeltaVsBestSe = dBestSe, LongTermPoints = longTerm[j],
                 Value = values.Average(),
                 DeltaSurvival = dSurv, DeltaSurvivalSe = dSurvSe,
                 DeltaHp = dHp, DeltaHpSe = dHpSe,
