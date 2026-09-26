@@ -18,6 +18,7 @@ public sealed class BasicBot
     public const double MinScoreToPlay = 0.75;
 
     /// <summary>Most plays in one plan, how many candidate plays are tried at each step, and how many combat copies a plan may use.</summary>
+    public BotTuning Tuning { get; init; } = BotTuning.Default;
     public int MaxDepth { get; init; } = 6;
     public int BranchWidth { get; init; } = 3;
     public int NodeBudget { get; init; } = 30;
@@ -53,6 +54,7 @@ public sealed class BasicBot
         private readonly Dictionary<ulong, double> _seen = new();
         private readonly ulong _salt;
         private int _nodes;
+        private double PotionReserve => _danger ? (_lethal ? 0 : 6) : _root.Stakes switch { 2 => 3, 1 => 9, _ => 22 };
 
         public List<BotAction> Best { get; private set; } = new();
         public double BestScore { get; private set; }
@@ -71,9 +73,11 @@ public sealed class BasicBot
 
         private void Visit(Combat state, double score, List<BotAction> path, int depth, ulong mask)
         {
-            if (score > BestScore)
+            double judged = _bot.Tuning.Leaf > 0 ? _bot.LeafValue(_root, state, _salt) - path.Count(a => a.IsPotion) * PotionReserve : score;
+            if (path.Count == 0 && _bot.Tuning.Leaf > 0) BestScore = double.NegativeInfinity;
+            if (judged > BestScore)
             {
-                BestScore = score;
+                BestScore = judged;
                 Best = new List<BotAction>(path);
                 BestFinal = state;
             }
@@ -96,7 +100,7 @@ public sealed class BasicBot
 
                 ulong nextMask = action.Tag > 0 && action.Tag < 64 ? mask | (1UL << action.Tag) : mask + (ulong)(action.PotionId?.Length ?? 0) * 0x1F3D5B79UL;
                 ulong fp = Fingerprint(next, nextMask);
-                if (_seen.TryGetValue(fp, out double old) && old >= total - 1e-9) continue;
+                if (_seen.TryGetValue(fp, out double old) && (_bot.Tuning.Leaf > 0 || old >= total - 1e-9)) continue;
                 _seen[fp] = total;
 
                 path.Add(action);
@@ -113,6 +117,34 @@ public sealed class BasicBot
                 h = (h ^ (ulong)(e.Hp + 4099 * e.Block + 65537 * e.Powers[(int)PowerKind.Vulnerable] + 1048583 * e.Powers[(int)PowerKind.Weak])) * 0x94D049BB133111EBUL;
             return h;
         }
+    }
+
+    /// <summary>Leaf mode: what stopping the turn in <paramref name="state"/> is worth. Plays out the enemy phase on a copy, then prices what is left: the HP lost now, plus each enemy's remaining HP at the rate its attacks cost us per point of damage we can deal.</summary>
+    private double LeafValue(Combat root, Combat state, ulong salt)
+    {
+        double powers = 0;
+        foreach (PowerKind kind in Enum.GetValues<PowerKind>())
+        {
+            int gained = state.PlayerPowers[(int)kind] - root.PlayerPowers[(int)kind];
+            if (gained > 0 && PowerRules.IsPermanentBuff(kind)) powers += PowerValue(state, kind, gained) * Tuning.PowerGain;
+        }
+        if (state.Result == CombatResult.Won) return powers + 50;
+        Combat c = state.Clone(salt);
+        int hpBefore = c.Hp;
+        c.EndPlayerTurn();
+        if (c.Result == CombatResult.Lost) return -1000;
+        double lost = hpBefore - c.Hp;
+        if (c.Result == CombatResult.Won) return powers + 50 - lost;
+        double perTurn = Math.Max(0, c.IncomingDamage() - Tuning.SpareBlock);
+        double price = perTurn / Tuning.Dpt;
+        double remaining = 0;
+        foreach (Enemy e in c.Enemies)
+        {
+            if (!e.Alive || e.Dying) continue;
+            double effective = e.Powers[(int)PowerKind.Vulnerable] > 0 ? e.Hp / 1.5 : e.Hp;
+            remaining += effective * (e.Primary ? 1 : 0.5);
+        }
+        return powers - lost - price * remaining;
     }
 
     /// <summary>Carries out one planned action on a combat (a copy while planning, the real one when playing). False if it can't be done.</summary>
@@ -216,30 +248,30 @@ public sealed class BasicBot
                 case EffectOp.Block:
                     {
                         int gain = combat.PlayerBlockGain(amount) * Math.Max(1, hits);
-                        score += BlockValue(gain, needBlock, lethalDanger);
+                        score += BlockValue(Tuning, gain, needBlock, lethalDanger);
                         break;
                     }
                 case EffectOp.BlockFlat:
-                    score += BlockValue(amount, needBlock, lethalDanger);
+                    score += BlockValue(Tuning, amount, needBlock, lethalDanger);
                     break;
                 case EffectOp.DoubleBlock:
-                    score += BlockValue(combat.Block, needBlock, lethalDanger);
+                    score += BlockValue(Tuning, combat.Block, needBlock, lethalDanger);
                     break;
                 case EffectOp.ExhaustNonAttacksForBlock:
                     {
                         int count = combat.Hand.Count(c => c.Kind != CardKind.Attack && c != card);
                         int gain = combat.PlayerBlockGain(amount) * count;
-                        score += BlockValue(gain, needBlock, lethalDanger) - 0.4 * count;
+                        score += BlockValue(Tuning, gain, needBlock, lethalDanger) - 0.4 * count;
                         break;
                     }
                 case EffectOp.Draw:
-                    score += amount * (energyAfter > 0 ? 3.0 : 0.8);
+                    score += amount * (energyAfter > 0 ? Tuning.Draw : 0.8);
                     break;
                 case EffectOp.DrawUntilNonAttack:
-                    score += energyAfter > 0 ? 3.0 : 0.8;
+                    score += energyAfter > 0 ? Tuning.Draw : 0.8;
                     break;
                 case EffectOp.Energy:
-                    score += amount * (HasPlayableCardLeft(combat, handIndex) ? 3.5 : 0.5);
+                    score += amount * (HasPlayableCardLeft(combat, handIndex) ? Tuning.Energy : 0.5);
                     break;
                 case EffectOp.LoseHp:
                     {
@@ -279,7 +311,7 @@ public sealed class BasicBot
                     score -= effect.Power == PowerKind.NoDraw ? 3 : amount * 2;
                     break;
                 case EffectOp.BuffSelf:
-                    score += PowerValue(combat, effect.Power, amount);
+                    score += PowerValue(combat, effect.Power, amount) * (effect.Power is PowerKind.Strength or PowerKind.Dexterity ? 1 : Tuning.Powers);
                     break;
                 case EffectOp.ExhaustRandomFromHand:
                     score -= 0.7;
@@ -334,20 +366,20 @@ public sealed class BasicBot
     }
 
     /// <summary>Block is worth its full price only up to what the incoming attacks need (much more if they would be lethal).</summary>
-    private static double BlockValue(int gain, int needBlock, bool lethalDanger)
+    private static double BlockValue(BotTuning t, int gain, int needBlock, bool lethalDanger)
     {
         int useful = Math.Min(gain, needBlock);
-        return useful * (lethalDanger ? 3.0 : 1.1) + (gain - useful) * 0.1;
+        return useful * (lethalDanger ? 3.0 : t.Block) + (gain - useful) * t.ExcessBlock;
     }
 
     /// <summary>What a power is worth to have from now on, in the same rough units as damage dealt.</summary>
-    private static double PowerValue(Combat combat, PowerKind power, int amount)
+    private double PowerValue(Combat combat, PowerKind power, int amount)
     {
         double turnsLeft = Math.Max(2, 8 - combat.Turn);
         return power switch
         {
-            PowerKind.Strength => amount * 8,
-            PowerKind.Dexterity => amount * 6,
+            PowerKind.Strength => amount * Tuning.Strength,
+            PowerKind.Dexterity => amount * Tuning.Dexterity,
             PowerKind.Plating or PowerKind.Metallicize => amount * 5,
             PowerKind.TempStrength => amount * 3,
             PowerKind.TempDexterity => amount * 2.5,
@@ -401,24 +433,24 @@ public sealed class BasicBot
         return lost;
     }
 
-    private static double DamageValue(Combat combat, Enemy enemy, int baseDamage, int hits, bool powered = true, CardDef? card = null)
+    private double DamageValue(Combat combat, Enemy enemy, int baseDamage, int hits, bool powered = true, CardDef? card = null)
     {
         int perHit = powered ? combat.PlayerAttackDamage(baseDamage, enemy, card) : baseDamage;
         int total = perHit * hits;
         int hpDamage = Math.Min(HpLoss(enemy, perHit, hits), enemy.Hp);
-        double value = hpDamage + Math.Min(total - hpDamage, enemy.Block) * 0.3;
+        double value = (hpDamage + Math.Min(total - hpDamage, enemy.Block) * 0.3) * Tuning.Damage;
 
         double threat = 3 + combat.IntentDamage(enemy);
         // Damage that finishes an enemy also removes everything it would have done later.
-        if (hpDamage >= enemy.Hp) value += 4 + threat;
-        else value += threat * hpDamage / enemy.Hp * 0.5;
+        if (hpDamage >= enemy.Hp) value += (4 + threat) * Tuning.Kill;
+        else value += threat * hpDamage / enemy.Hp * Tuning.Threat;
 
         // Minions don't end the fight; don't spend the turn on them while a real enemy is still up.
         if (!enemy.Primary && combat.Enemies.Any(e => e.Alive && e.Primary)) value *= 0.6;
         return value;
     }
 
-    private static double DebuffValue(Combat combat, Enemy enemy, PowerKind power, int amount, int handIndex)
+    private double DebuffValue(Combat combat, Enemy enemy, PowerKind power, int amount, int handIndex)
     {
         int turns = Math.Min(amount, 2);
         switch (power)
@@ -437,14 +469,14 @@ public sealed class BasicBot
                         foreach (Effect e in other.Effects)
                             if (e.Op is EffectOp.Damage or EffectOp.DamageAll) followUp += e.Amount * Math.Max(1, e.Hits) * 0.5;
                     }
-                    return followUp + turns * 1.5;
+                    return (followUp + turns * 1.5) * (Tuning.Vulnerable / 0.5);
                 }
             case PowerKind.Vulnerable:
                 return 0.5 + turns * 0.3;
             case PowerKind.Weak when enemy.Powers[(int)PowerKind.Weak] == 0:
                 {
                     double incoming = combat.IntentDamage(enemy);
-                    return incoming * 0.25 * turns + 0.5;
+                    return incoming * Tuning.Weak * turns + 0.5;
                 }
             case PowerKind.Poison:
                 return amount * 2.5;

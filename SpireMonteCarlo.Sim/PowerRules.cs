@@ -191,6 +191,11 @@ public static class PowerRules
             or PowerKind.Surrounded or PowerKind.ChainsOfBinding or PowerKind.Tender or PowerKind.Imbalanced or PowerKind.Slow
             or PowerKind.Sandpit or PowerKind.Tainted;
 
+    /// <summary>Buffs that keep paying off for the rest of the fight (not a debuff, not gone by the next turn).</summary>
+    public static bool IsPermanentBuff(PowerKind kind) =>
+        !IsDebuff(kind) && kind is not (PowerKind.TempStrength or PowerKind.TempDexterity or PowerKind.FlameBarrier or PowerKind.FreeAttack
+            or PowerKind.Rage or PowerKind.Colossus or PowerKind.Intangible or PowerKind.Unsupported or PowerKind.CrimsonSelfDamage or PowerKind.InfernoSelfDamage);
+
     /// <summary>Debuffs that count down one step each time the enemy side finishes its turn.</summary>
     public static bool TicksDownAfterEnemyTurn(PowerKind kind) =>
         kind is PowerKind.Vulnerable or PowerKind.Weak or PowerKind.Frail or PowerKind.Intangible;

@@ -14,6 +14,8 @@ public static class SimCommands
         {
             case "extract": return Extract(args.Skip(1).ToArray());
             case "fight": return Fight(args.Skip(1).ToArray());
+            case "bench": return Load() is { } benchData ? TuneCommand.Bench(args.Skip(1).ToArray(), benchData) : 1;
+            case "tune": return Load() is { } tuneData ? TuneCommand.Tune(args.Skip(1).ToArray(), tuneData) : 1;
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
             case "calibrate-run": return CalibrateRun(args.Skip(1).ToArray());
             case "rewards": return Rewards(args.Skip(1).ToArray());
@@ -361,12 +363,34 @@ public static class SimCommands
         var relics = (Option(args, "--relics") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(id => RelicRules.Parse(id) is var k && k != RelicKind.Unknown ? k : throw new ArgumentException($"Unknown or unmodelled relic {id}")).ToList();
 
-        if (args.Contains("--trace"))
+        if (args.Contains("--trace") && Option(args, "--exhaustive") == null)
         {
             ulong traceSeed = SimRng.Mix(seed, 0);
             string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
             Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
             FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot);
+            return 0;
+        }
+
+        if (Option(args, "--exhaustive") is { } exhaustiveText)
+        {
+            int rolls = int.Parse(exhaustiveText);
+            if (args.Contains("--trace"))
+            {
+                ulong ts = SimRng.Mix(seed, 0);
+                string[] tl = encounter.Generate(new SimRng(SimRng.Mix(ts, 1)));
+                var r0 = FightSimulator.RunExhaustive(deck, hp, hp, tl.Select(data.Monsters.Get), ascension, ts, rolls, 5, int.Parse(Option(args, "--sequences") ?? "300"), data.Services, Console.WriteLine);
+                Console.WriteLine($"result: won {r0.Won}, HP lost {r0.HpLost}, turns {r0.Turns}");
+                return 0;
+            }
+            var look = new FightResult[n];
+            Parallel.For(0, n, i =>
+            {
+                ulong fightSeed = SimRng.Mix(seed, (ulong)i);
+                string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
+                look[i] = FightSimulator.RunExhaustive(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, rolls, 5, int.Parse(Option(args, "--sequences") ?? "300"), data.Services);
+            });
+            Console.WriteLine($"{encounter.Id} exhaustive({rolls}): win {100.0 * look.Count(r => r.Won) / n:F1}%  HP lost {look.Average(r => r.HpLost):F1}  turns {look.Average(r => r.Turns):F1}");
             return 0;
         }
 

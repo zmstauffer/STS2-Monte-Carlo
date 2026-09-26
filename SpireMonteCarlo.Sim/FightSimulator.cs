@@ -6,11 +6,19 @@ public static class FightSimulator
 {
     private const int MaxActionsPerTurn = 60;
 
+    /// <summary>Research switch: when above 0 every fight is played by the slow exhaustive-lookahead player with this many rollouts per candidate.</summary>
+    public static int ExhaustiveRollouts { get; set; } = int.Parse(Environment.GetEnvironmentVariable("BOT_EXHAUSTIVE") ?? "0");
+
     /// <summary>Plays one whole combat with the bot and reports how it went. <paramref name="trace"/> receives a readable play-by-play.</summary>
     public static FightResult Run(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters,
         int ascension, ulong seed, BasicBot? bot = null, Action<string>? trace = null, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, CombatServices? services = null,
         IEnumerable<PotionDef>? potions = null, int stakes = 0, IEnumerable<RelicKind>? relics = null, double hpScale = 1.0)
     {
+        if (ExhaustiveRollouts > 0 && trace == null)
+        {
+            var list = monsters.ToList();
+            return RunExhaustive(deck, hp, maxHp, list, ascension, seed, ExhaustiveRollouts, 5, 300, services, null, altStarts, enemyDamageScale, potions, stakes, relics, hpScale);
+        }
         bot ??= new BasicBot();
         var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale, services: services, potions: potions, relics: relics, stakes: stakes, hpScale: hpScale);
         while (combat.Result == CombatResult.Ongoing)
@@ -24,6 +32,77 @@ public static class FightSimulator
             trace?.Invoke($"    enemy turn: HP {hpBefore} -> {combat.Hp}");
         }
         trace?.Invoke($"  result: {combat.Result}, HP lost {combat.HpLost}, turns {combat.Turn}");
+        return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList());
+    }
+
+    /// <summary>Research tool: each turn tries every ordered sequence of the cards now in hand, finishes the fight from each with the default bot on shuffled futures, and plays the sequence with the lowest average HP loss.</summary>
+    public static FightResult RunExhaustive(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters,
+        int ascension, ulong seed, int rollouts, int maxDepth, int maxSequences, CombatServices? services = null, Action<string>? trace = null,
+        IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, IEnumerable<PotionDef>? potions = null, int stakes = 0, IEnumerable<RelicKind>? relics = null, double hpScale = 1.0)
+    {
+        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale, services: services, potions: potions, relics: relics, stakes: stakes, hpScale: hpScale);
+        var fallback = new BasicBot();
+        ulong salt = 1;
+        while (combat.Result == CombatResult.Ongoing)
+        {
+            foreach (CardDef c in combat.Hand) c.Tag = 0;
+            for (int i = 0; i < combat.Hand.Count; i++) combat.Hand[i].Tag = i + 1;
+
+            var sequences = new List<List<BotAction>>();
+            void Enumerate(Combat state, List<BotAction> prefix)
+            {
+                if (sequences.Count >= maxSequences) return;
+                sequences.Add(new List<BotAction>(prefix));
+                if (prefix.Count >= maxDepth) return;
+                var seen = new HashSet<(string, bool, int)>();
+                foreach (CardDef card in state.Hand.Where(c => c.Tag > 0).ToList())
+                {
+                    if (!state.CanPlay(card) || !seen.Add((card.Id, card.Upgraded, card.BonusDamage))) continue;
+                    IEnumerable<int> targets = Combat.NeedsTarget(card) ? state.Enemies.Where(e => e.Alive && !e.Dying).Select(e => e.Index) : new[] { -1 };
+                    foreach (int t in targets)
+                    {
+                        Combat next = state.Clone(salt++);
+                        var action = new BotAction(card.Tag, null, t);
+                        if (!BasicBot.Apply(next, action) || next.Result != CombatResult.Ongoing) continue;
+                        prefix.Add(action);
+                        Enumerate(next, prefix);
+                        prefix.RemoveAt(prefix.Count - 1);
+                    }
+                }
+            }
+            Enumerate(combat, new List<BotAction>());
+
+            List<BotAction> best = sequences[0];
+            double bestScore = double.MaxValue;
+            foreach (var seq in sequences)
+            {
+                double total = 0;
+                for (int r = 0; r < rollouts; r++)
+                {
+                    Combat c = combat.Clone(salt++);
+                    c.Rng.Shuffle(c.DrawPile);
+                    foreach (BotAction a in seq) if (!BasicBot.Apply(c, a)) break;
+                    if (c.Result == CombatResult.Ongoing) PlayTurn(c, fallback, null);
+                    while (c.Result == CombatResult.Ongoing)
+                    {
+                        c.EndPlayerTurn();
+                        if (c.Result != CombatResult.Ongoing || c.Turn > 40) break;
+                        PlayTurn(c, fallback, null);
+                    }
+                    total += c.Result == CombatResult.Won ? c.HpLost : 1000;
+                }
+                if (total < bestScore) { bestScore = total; best = seq; }
+            }
+            if (trace != null)
+            {
+                TraceTurnStart(combat, trace);
+                trace($"    best of {sequences.Count} (avg loss {bestScore / rollouts:0.0}): " + string.Join(", ", best.Select(a => Describe(combat, a).Trim())));
+            }
+            foreach (BotAction a in best) if (combat.Result == CombatResult.Ongoing) BasicBot.Apply(combat, a);
+            if (combat.Result == CombatResult.Ongoing) PlayTurn(combat, fallback, null);
+            if (combat.Result != CombatResult.Ongoing) break;
+            combat.EndPlayerTurn();
+        }
         return new FightResult(combat.Result == CombatResult.Won, combat.HpLost, combat.Turn, Math.Max(0, combat.Hp), combat.Potions.ToList(), combat.LostCardIds.ToList());
     }
 
