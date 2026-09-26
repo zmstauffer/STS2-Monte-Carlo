@@ -4,6 +4,11 @@ namespace SpireMonteCarlo.Sim;
 public sealed partial class Combat
 {
     private bool _playerTurn;
+    private bool _cardsChangeInPlace;
+
+    /// <summary>Cards that change themselves while they lie in a pile or when played from one (Stomp, Rampage, Thrash): a cloned combat can't share these.</summary>
+    private static bool ChangesInPlace(CardDef c) =>
+        c.CheaperPerAttackPlayed || c.DamageGrowthPerPlay > 0 || c.Effects.Any(e => e.Op == EffectOp.AbsorbRandomAttack);
     private int _attacksPlayedThisTurn;
     private int _cardBlockGainsThisTurn;
     private int _cardsExhaustedThisTurn;
@@ -435,6 +440,7 @@ public sealed partial class Combat
     private CardDef Clone(CardDef card)
     {
         CardDef copy = card.Instantiate();
+        if (ChangesInPlace(copy)) _cardsChangeInPlace = true;
         copy.BonusDamage = card.BonusDamage;
         return copy;
     }

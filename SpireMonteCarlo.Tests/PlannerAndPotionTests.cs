@@ -155,6 +155,23 @@ public class PlannerAndPotionTests
     }
 
     [Fact]
+    public void PlanningNeverChangesCardsSittingInTheRealPiles()
+    {
+        if (Data == null) return;
+        SimData data = Data;
+        // Havoc plays the top card of the draw pile; Rampage grows its own damage when played. Trying that on a copy must not touch the real card.
+        var c = new Combat(Array.Empty<CardDef>(), 80, 80, new[] { Dummy() }, 0, 7, services: data.Services);
+        c.Hand.AddRange(data.ParseDeck("HAVOC").Select(x => x.Instantiate()));
+        c.DrawPile.AddRange(data.ParseDeck("STRIKE_IRONCLAD,RAMPAGE").Select(x => x.Instantiate()));   // Rampage on top
+        CardDef rampage = c.DrawPile[^1];
+        int before = rampage.BonusDamage;
+        new BasicBot().Plan(c);
+        Assert.Equal(before, rampage.BonusDamage);
+        Assert.Equal(2, c.DrawPile.Count);
+        Assert.Same(rampage, c.DrawPile[^1]);
+    }
+
+    [Fact]
     public void ThePlannerSavesAPotionInAnEasyFightButUsesItAgainstABoss()
     {
         if (Data == null) return;

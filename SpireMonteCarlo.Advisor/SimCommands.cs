@@ -313,6 +313,12 @@ public static class SimCommands
         var potions = (Option(args, "--potions") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(id => PotionLibrary.Find(id) ?? throw new ArgumentException($"Unknown or unmodelled potion {id}")).ToList();
         int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
+        var bot = new BasicBot
+        {
+            NodeBudget = int.Parse(Option(args, "--nodes") ?? new BasicBot().NodeBudget.ToString()),
+            BranchWidth = int.Parse(Option(args, "--width") ?? new BasicBot().BranchWidth.ToString()),
+            MaxDepth = int.Parse(Option(args, "--depth") ?? new BasicBot().MaxDepth.ToString()),
+        };
         var relics = (Option(args, "--relics") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(id => RelicRules.Parse(id) is var k && k != RelicKind.Unknown ? k : throw new ArgumentException($"Unknown or unmodelled relic {id}")).ToList();
 
@@ -321,7 +327,7 @@ public static class SimCommands
             ulong traceSeed = SimRng.Mix(seed, 0);
             string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
             Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
-            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics);
+            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot);
             return 0;
         }
 
@@ -333,7 +339,7 @@ public static class SimCommands
             ulong fightSeed = SimRng.Mix(seed, (ulong)i);
             string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
             monsterIds[i] = lineup;
-            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics);
+            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot);
         });
         sw.Stop();
 

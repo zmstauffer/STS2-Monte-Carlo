@@ -80,10 +80,22 @@ public sealed partial class Combat
         CopyRelicState(src);
         Hp = src.Hp; MaxHp = src.MaxHp; Block = src.Block; Energy = src.Energy; Turn = src.Turn;
         Array.Copy(src.PlayerPowers, PlayerPowers, PlayerPowers.Length);
-        foreach (CardDef c in src.DrawPile) DrawPile.Add(c.Copy());
+        // Cards in the hand are the ones a play can change in place; the other piles only ever have cards moved between them, so a
+        // copy can share the card objects unless some card is changed in place wherever it lies (Stomp's cost reduction).
+        _cardsChangeInPlace = src._cardsChangeInPlace;
         foreach (CardDef c in src.Hand) Hand.Add(c.Copy());
-        foreach (CardDef c in src.DiscardPile) DiscardPile.Add(c.Copy());
-        foreach (CardDef c in src.ExhaustPile) ExhaustPile.Add(c.Copy());
+        if (_cardsChangeInPlace)
+        {
+            foreach (CardDef c in src.DrawPile) DrawPile.Add(c.Copy());
+            foreach (CardDef c in src.DiscardPile) DiscardPile.Add(c.Copy());
+            foreach (CardDef c in src.ExhaustPile) ExhaustPile.Add(c.Copy());
+        }
+        else
+        {
+            DrawPile.AddRange(src.DrawPile);
+            DiscardPile.AddRange(src.DiscardPile);
+            ExhaustPile.AddRange(src.ExhaustPile);
+        }
         foreach (Enemy e in src.Enemies) Enemies.Add(e.Copy());
         Potions.AddRange(src.Potions);
         Result = src.Result; HpLost = src.HpLost; MaxHpGained = src.MaxHpGained; CardsPlayed = src.CardsPlayed; CardsPlayedThisTurn = src.CardsPlayedThisTurn;
@@ -110,6 +122,7 @@ public sealed partial class Combat
         MaxEnergy = maxEnergy;
 
         var cards = deck.Select(c => c.Instantiate()).ToList();
+        _cardsChangeInPlace = cards.Any(ChangesInPlace);
         Rng.Shuffle(cards);
         // Innate cards start on top of the draw pile.
         DrawPile.AddRange(cards.Where(c => !c.Innate));

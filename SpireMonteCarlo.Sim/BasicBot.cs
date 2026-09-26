@@ -18,9 +18,9 @@ public sealed class BasicBot
     public const double MinScoreToPlay = 0.75;
 
     /// <summary>Most plays in one plan, how many candidate plays are tried at each step, and how many combat copies a plan may use.</summary>
-    public int MaxDepth { get; init; } = 8;
-    public int BranchWidth { get; init; } = 4;
-    public int NodeBudget { get; init; } = 120;
+    public int MaxDepth { get; init; } = 6;
+    public int BranchWidth { get; init; } = 3;
+    public int NodeBudget { get; init; } = 30;
 
     /// <summary>The best sequence for the rest of this turn; empty means end the turn.</summary>
     public List<BotAction> Plan(Combat combat)
