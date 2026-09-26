@@ -45,6 +45,11 @@ public sealed partial class Combat
         Source.TargetVulnerable => target?.Powers[(int)PowerKind.Vulnerable] ?? 0,
         Source.TargetIsVulnerable => target != null && target.Powers[(int)PowerKind.Vulnerable] > 0 ? 1 : 0,
         Source.HandExhausted => handExhausted,
+        Source.DrawPileCount => DrawPile.Count,
+        Source.DiscardPileCount => DiscardPile.Count,
+        Source.CardsPlayedInCombat => CardsPlayed,
+        Source.TargetDebuffs => target == null ? 0 : Enum.GetValues<PowerKind>().Count(k => PowerRules.IsDebuff(k) && target.Powers[(int)k] > 0),
+        Source.MaulPlays => _rr.MaulPlays,
         Source.TimesHurtPlusOne => 1 + _timesHurt,
         Source.LostHpThisTurn => _lostHpThisTurn ? 1 : 0,
         Source.ExhaustedThisTurn => _cardsExhaustedThisTurn > 0 ? 1 : 0,
@@ -164,6 +169,7 @@ public sealed partial class Combat
     {
         if (card.Cost == CardDef.XCost && Has(RelicKind.ChemicalX)) x += 2;
         _cardsInPlay++;
+        _damageDealtByCard = 0;
         try
         {
             if (card.Kind == CardKind.Attack)
@@ -194,6 +200,8 @@ public sealed partial class Combat
             if (card.Kind == CardKind.Attack) _rr.GiganticAttack = 0;
             RelicAfterCard(card, costPaid);
             RelicAfterCardExtra(card);
+            PowersAfterCard(card);
+            if (card.Id == "MAUL") _rr.MaulPlays++;
             AfterCardTender();
             AfterCardTainted(card);
             AfterCardEnemyPowers(card);
@@ -213,7 +221,7 @@ public sealed partial class Combat
         card = RelicUpgradePlayedCard(card);
         if (card.Kind == CardKind.Power) { /* stays in play for the rest of the combat */ }
         else if (forceExhaust || card.Exhaust || (card.Kind == CardKind.Skill && PlayerPowers[(int)PowerKind.Corruption] > 0)) ExhaustCard(card);
-        else DiscardPile.Add(card);
+        else if (!PlaceAfterPlay(card)) DiscardPile.Add(card);
 
         CheckEnd();
     }
@@ -276,7 +284,10 @@ public sealed partial class Combat
                 foreach (Enemy e in Enemies.ToList())
                     if (Targetable(e)) DamageEnemy(e, amount, fromCard: false);
                 break;
-            case EffectOp.Special: ApplySpecial((SpecialEffect)effect.Arg, amount, ctx.Target); break;
+            case EffectOp.Special:
+                if ((SpecialEffect)effect.Arg == SpecialEffect.GoldIfFatal) { if (ctx.LastKilled) _rr.GoldGained += amount; }
+                else ApplySpecial((SpecialEffect)effect.Arg, amount, ctx.Target, hits, card);
+                break;
             case EffectOp.BlockFlat: GainBlockRaw(amount); break;
             case EffectOp.DoubleBlock: GainBlockRaw(Block); break;
             case EffectOp.HealPercent: Heal((int)(MaxHp * amount / 100.0)); break;
@@ -345,7 +356,7 @@ public sealed partial class Combat
             case EffectOp.PlayTopOfDraw:
                 for (int i = 0; i < amount && Result == CombatResult.Ongoing; i++)
                 {
-                    if (DrawPile.Count == 0 && !ReshuffleDiscard()) break;
+                    if ((DrawPile.Count == 0 && !ReshuffleDiscard()) || DrawPile.Count == 0) break;
                     CardDef top = DrawPile[^1];
                     DrawPile.RemoveAt(DrawPile.Count - 1);
                     AutoPlay(top, forceExhaust: effect.Hits == 1, alreadyRemoved: true);
@@ -514,12 +525,13 @@ public sealed partial class Combat
         if (!fromHandDraw && PlayerPowers[(int)PowerKind.NoDraw] > 0) return null;
         if (!fromHandDraw && _playerTurn && Has(RelicKind.Fiddle)) return null;   // no drawing during the turn
         if (Hand.Count >= MaxHandSize) return null;
-        if (DrawPile.Count == 0 && !ReshuffleDiscard()) return null;
+        if ((DrawPile.Count == 0 && !ReshuffleDiscard()) || DrawPile.Count == 0) return null;
         CardDef card = DrawPile[^1];
         DrawPile.RemoveAt(DrawPile.Count - 1);
         Hand.Add(card);
         if (PlayerPowers[(int)PowerKind.Confused] > 0 && card.Cost >= 0) card.RandomCost = Rng.Next(4);
         EnchantOnDraw(card);
+        OnCardDrawn(card);
         if (PlayerPowers[(int)PowerKind.Hellraiser] > 0 && card.IsStrike) AutoPlay(card, forceExhaust: false);
         return card;
     }

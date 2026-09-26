@@ -197,7 +197,7 @@ public sealed partial class Combat
         if (Has(RelicKind.VelvetChoker) && _rr.HandPlaysThisTurn >= 6) return false;
         if (PlayerPowers[(int)PowerKind.Smoggy] > 0 && card.Kind == CardKind.Skill && _skillsThisTurn >= 1) return false;
         int cost = EffectiveCost(card);
-        return cost == CardDef.XCost || cost <= Energy;
+        return (cost == CardDef.XCost || cost <= Energy) && CardRulesAllowPlay(card);
     }
 
     /// <summary>Damage one attack of <paramref name="baseDamage"/> would deal to <paramref name="target"/> right now (null: ignore the target's powers).</summary>
@@ -221,7 +221,7 @@ public sealed partial class Combat
     /// <summary>Block a card of <paramref name="baseBlock"/> would give right now, with Dexterity, Frail, and Unmovable.</summary>
     public int PlayerBlockGain(int baseBlock, CardDef? card = null)
     {
-        baseBlock += EnchantBlockBonus(card);
+        baseBlock += EnchantBlockBonus(card) + (card is { IsDefend: true } ? PlayerPowers[(int)PowerKind.Fasten] : 0);
         double b = Math.Max(0, baseBlock + PlayerPowers[(int)PowerKind.Dexterity] + RelicDexterityBonus());
         if (PlayerPowers[(int)PowerKind.Frail] > 0) b *= 0.75;
         if (PlayerPowers[(int)PowerKind.Unmovable] > 0 && _cardBlockGainsThisTurn < PlayerPowers[(int)PowerKind.Unmovable]) b *= 2;
@@ -285,6 +285,7 @@ public sealed partial class Combat
         }
         if (Result != CombatResult.Ongoing) return;
 
+        EndOfTurnCardEffects();
         bool extraTurn = RelicBeforeHandDiscard();
         if (extraTurn)
         {
@@ -376,10 +377,12 @@ public sealed partial class Combat
 
         PullAttacksFromDiscard(PlayerPowers[(int)PowerKind.Aggression]);
         PlayerPowers[(int)PowerKind.Strength] += PlayerPowers[(int)PowerKind.DemonForm];
+        PowersBeforeHandDraw();
         DrawCards(Math.Max(0, HandSize + extraDraw), fromHandDraw: true);
         RelicAfterDraw();
         if (Turn == 1) { RelicAfterFirstDraw(); EnchantAtCombatStart(); }
         RelicAfterEveryDraw();
+        PowersAfterHandDraw();
 
         if (PlayerPowers[(int)PowerKind.CrimsonMantle] > 0)
         {
@@ -395,8 +398,10 @@ public sealed partial class Combat
     private void HitPlayer(int damage, Enemy? attacker)
     {
         if (attacker != null) attacker.DamageDealt += damage;
+        if (PlayerPowers[(int)PowerKind.Intangible] > 0 && damage > 1) damage = 1;
         int absorbed = Math.Min(Block, damage);
         Block -= absorbed;
+        if (damage - absorbed > 0 && attacker != null && PlayerPowers[(int)PowerKind.Gambit] > 0) { Hp = 0; Result = CombatResult.Lost; return; }
         LoseHp(damage - absorbed);
         if (attacker != null && PlayerPowers[(int)PowerKind.FlameBarrier] > 0 && attacker.Alive)
             DamageEnemy(attacker, PlayerPowers[(int)PowerKind.FlameBarrier], fromCard: false);
@@ -435,6 +440,7 @@ public sealed partial class Combat
     /// <summary>Block from a card (already scaled by Dexterity and Frail); Unmovable doubles the first few each turn.</summary>
     private void GainBlockFromCard(int baseBlock, CardDef? card = null)
     {
+        if (PlayerPowers[(int)PowerKind.NoCardBlock] > 0) return;
         int amount = RelicBlockFromCard(PlayerBlockGain(baseBlock, card));
         _cardBlockGainsThisTurn++;
         GainBlockRaw(amount);
@@ -486,6 +492,7 @@ public sealed partial class Combat
         if (lost <= 0) return false;
 
         lost = RelicMinimumDamage(lost, fromCard);
+        if (fromCard) _damageDealtByCard += lost;
         enemy.Hp -= lost;
         if (fromCard && enemy.Powers[(int)PowerKind.Skittish] > 0 && !enemy.SkittishUsed)
         {

@@ -18,11 +18,17 @@ public sealed partial class Combat
         public bool LegionTriggeredLastTurn, ExtraTurnPending;
         public CardDef? LastAttackThisTurn, LastAttackLastTurn;
         public List<CardDef> PendingHandAdds = new();
+        public List<CardDef> Returning = new();
+        public List<(int Turns, int Damage)> Bombs = new();
+        public int NextTurnEnergy, MaulPlays, GoldGained, AutomationCards, PanacheCount, NostalgiaPlays, BoulderExtra, ToricTurns, ToricBlock, NextTurnDraw;
+        public bool PanacheStarted, ReboundPending;
 
         public RelicRuntime Clone()
         {
             var copy = (RelicRuntime)MemberwiseClone();
             copy.PendingHandAdds = PendingHandAdds.Select(c => c.Copy()).ToList();
+            copy.Returning = Returning.Select(c => c.Copy()).ToList();
+            copy.Bombs = Bombs.ToList();
             return copy;
         }
     }
@@ -52,6 +58,7 @@ public sealed partial class Combat
         if (Has(RelicKind.PumpkinCandle)) bonus += 1;
         if (Has(RelicKind.PaelsFlesh) && Turn >= 3) bonus += 1;
         if (_rr.TearsPending > 0) { bonus += _rr.TearsPending; _rr.TearsPending = 0; }
+        if (_rr.NextTurnEnergy > 0) { bonus += _rr.NextTurnEnergy; _rr.NextTurnEnergy = 0; }
         if (Has(RelicKind.VeryHotCocoa) && Turn == 1) bonus += 4;
         if (Has(RelicKind.VenerableTeaSetBonus) && Turn == 1) bonus += 2;
         if (Has(RelicKind.FakeVenerableTeaSetBonus) && Turn == 1) bonus += 1;
@@ -81,6 +88,7 @@ public sealed partial class Combat
             if (_rr.PollinousTurns >= 4) { extra += 2; _rr.PollinousTurns = 0; }
         }
         if (_rr.ClarityTurns > 0) { extra += 1; _rr.ClarityTurns--; }
+        if (_rr.NextTurnDraw > 0) { extra += _rr.NextTurnDraw; _rr.NextTurnDraw = 0; }
         return extra;
     }
 
@@ -284,6 +292,7 @@ public sealed partial class Combat
     private void RelicOnShuffle()
     {
         if (Has(RelicKind.TheAbacus)) GainBlockRaw(6);
+        for (int i = 0; i < PlayerPowers[(int)PowerKind.Stratagem]; i++) PullBest(DrawPile.ToList());
         if (Has(RelicKind.BiiigHug) && CardByIdFromServices("SOOT") is { } soot) DrawPile.Insert(Rng.Next(DrawPile.Count + 1), soot.Instantiate());
     }
 

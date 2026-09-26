@@ -71,6 +71,11 @@ public enum SpecialEffect
     None, Clarity, RadiantTincture, ShipInABottle, Duplicator, Gigantification, StableSerum, BottledPotential, Ashwater, GamblersBrew,
     DropletOfPrecognition, LiquidMemories, EntropicBrew, Glowwater, SneckoOil, SoldiersStew, OrobicAcid, GenerateColorless, GenerateSkill,
     GeneratePower, TouchOfInsanity, FoulPotion,
+    // cards
+    ProcurePotion, AnointedRares, BeatDown, Discovery, JackOfAllTrades, Jackpot, ImpatienceDraw, RestlessnessDraw, ScrawlDraw, SecretTechnique,
+    SecretWeapon, SeekerStrike, ThinkingAhead, Purity, Prolong, RetainHandThisTurn, Rebound, NeowsFury, Enlightenment, Metamorphosis, Distraction, DualWield,
+    Wish, TheBomb, Gambit, PanicButton, BlockFromDamage, OmnisliceSpread, GoldIfFatal, HiddenGem, Stun, BrightestFlame, Apotheosis, Outmaneuver,
+    Relax, TorcToughness, Entrench, Stack,
 }
 
 /// <summary>Where a number that isn't fixed comes from.</summary>
@@ -87,6 +92,15 @@ public enum Source
     TargetVulnerable,
     /// <summary>1 if the target is Vulnerable, else 0 (used for hit counts: Dismantle).</summary>
     TargetIsVulnerable,
+    /// <summary>Cards in the draw pile (Mind Blast) or discard pile (Stack).</summary>
+    DrawPileCount,
+    DiscardPileCount,
+    /// <summary>Cards played so far this combat (Gold Axe).</summary>
+    CardsPlayedInCombat,
+    /// <summary>How many different debuffs the target has (Rend).</summary>
+    TargetDebuffs,
+    /// <summary>Times any Maul has been played this combat.</summary>
+    MaulPlays,
     /// <summary>Cards exhausted earlier in this same play by an ExhaustHand step (Fiend Fire, Stoke).</summary>
     HandExhausted,
     /// <summary>1 + times the player has taken unblocked damage this combat (Tear Asunder).</summary>
@@ -133,6 +147,35 @@ public sealed class CardDef
     public bool Innate { get; init; }
     public bool Retain { get; init; }
     public bool IsStrike { get; init; }
+    public bool IsDefend { get; init; }
+
+    /// <summary>The card's rarity name from the game ("Common", "Rare", "Status", ...); empty when unknown.</summary>
+    public string Rarity { get; init; } = "";
+
+    /// <summary>After it is played it comes back to the hand at the start of the next turn (Bolas, Thrumming Hatchet).</summary>
+    public bool ReturnsNextTurn { get; init; }
+
+    /// <summary>A power the player gains at the end of the turn while this card is in hand (Doubt: Weak, Shame: Frail).</summary>
+    public PowerKind EndTurnPower { get; init; } = PowerKind.Unsupported;
+    public int EndTurnPowerAmount { get; init; }
+
+    /// <summary>Gold lost at the end of the turn while in hand (Debt).</summary>
+    public int EndTurnGold { get; init; }
+
+    /// <summary>HP lost at the end of the turn equal to the cards in hand (Regret).</summary>
+    public bool RegretLike { get; init; }
+
+    /// <summary>Playable only when every card in hand is an Attack (Clash).</summary>
+    public bool OnlyIfHandAllAttacks { get; init; }
+
+    /// <summary>While this is in hand no other card can be played (Enthralled).</summary>
+    public bool MustPlayFirst { get; init; }
+
+    /// <summary>While this is in hand at most this many cards can be played a turn (Normality); 0 for no limit.</summary>
+    public int PlayCap { get; init; }
+
+    /// <summary>Energy lost when this card is drawn (Void).</summary>
+    public int LoseEnergyWhenDrawn { get; init; }
     public Effect[] Effects { get; init; } = Array.Empty<Effect>();
 
     /// <summary>Damage taken at the end of the turn if this card is still in hand (Burn, Infection, ...); blockable.</summary>
@@ -191,7 +234,9 @@ public sealed class CardDef
     public CardDef Instantiate() => new()
     {
         Id = Id, Upgraded = Upgraded, Kind = Kind, Cost = Cost, Exhaust = Exhaust, Ethereal = Ethereal, Innate = Innate,
-        Retain = Retain, IsStrike = IsStrike, Effects = Effects, EndTurnDamage = EndTurnDamage, EndTurnHpLoss = EndTurnHpLoss,
+        Retain = Retain, IsStrike = IsStrike, IsDefend = IsDefend, Rarity = Rarity, ReturnsNextTurn = ReturnsNextTurn, EndTurnPower = EndTurnPower, EndTurnPowerAmount = EndTurnPowerAmount,
+        EndTurnGold = EndTurnGold, RegretLike = RegretLike, OnlyIfHandAllAttacks = OnlyIfHandAllAttacks, MustPlayFirst = MustPlayFirst, PlayCap = PlayCap,
+        LoseEnergyWhenDrawn = LoseEnergyWhenDrawn, Effects = Effects, EndTurnDamage = EndTurnDamage, EndTurnHpLoss = EndTurnHpLoss,
         DamageGrowthPerPlay = DamageGrowthPerPlay, CheaperPerAttackPlayed = CheaperPerAttackPlayed, CostsMoreEachPlay = CostsMoreEachPlay,
         EnergyWhenExhausted = EnergyWhenExhausted, PlaysFromExhaustPile = PlaysFromExhaustPile, Approximate = Approximate,
         UpgradedForm = UpgradedForm, Enchantment = Enchantment, EnchantAmount = EnchantAmount,

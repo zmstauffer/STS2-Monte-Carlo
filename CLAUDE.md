@@ -151,3 +151,9 @@ Next: improve fidelity as listed, checking each step with `sim calibrate` and `s
 - Don't redistribute game data.
 - The mod must stay read-only with respect to gameplay.
 - Keep heavy computation in the standalone app, not the mod.
+
+Content sweep (owner: "make it content complete"; the bot must NOT know upcoming cards, so no card-reward prediction):
+
+- Relics: all modelled except GOLDEN_COMPASS, SEA_GLASS, PRISMATIC_GEM, MASSIVE_SCROLL. Potions: every reward-pool potion. Enchantments (`Enchantments.cs`, `Combat.Enchantments.cs`) and Neow boons (`NeowBoons.cs`) exist. Ironclad cards: all exact. Colorless, event, curse, status, quest and token cards have recipes (`CardRecipes.cs`, `Combat.CardsMore.cs`); multiplayer-only cards are skipped on purpose. Tests: `RelicBatchTests`, `EnchantmentTests`, `PotionBatchTests`, `CardBatchTests`, `NeowAndMapTests` (369 pass). `advisor sim audit` reports coverage.
+- Known gaps: tokens DISINTEGRATION/MIND_ROT/SLOTH/WASTE_AWAY/SOVEREIGN_BLADE/SWEEPING_GAZE; Byrdpip/Paels Legion pets simplified; Splash, Kaleidoscope, Toolbox approximated; Mad Science plain-attack only; Guilty curse removal after 5 combats not implemented in the rollout.
+- Still to do: re-fit `PlayerHpScale` (Act 1 1.72, Act 2 3.5) with `sim calibrate-run --map <fixture> --maps 200` now that content grew, and re-check `advise` timing.

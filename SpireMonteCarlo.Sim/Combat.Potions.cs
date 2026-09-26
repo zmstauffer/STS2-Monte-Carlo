@@ -3,8 +3,9 @@ namespace SpireMonteCarlo.Sim;
 /// <summary>The potion effects that need more than a number: timed buffs, card generation and choices, and pile changes (rules from the decompiled potion and power classes, v0.111).</summary>
 public sealed partial class Combat
 {
-    private void ApplySpecial(SpecialEffect kind, int amount, int target)
+    private void ApplySpecial(SpecialEffect kind, int amount, int target, int hits = 1, CardDef? card = null)
     {
+        if (kind >= SpecialEffect.ProcurePotion) { ApplyCardSpecial(kind, amount, hits, card ?? Hand.FirstOrDefault() ?? new CardDef { Id = "NONE" }, target); return; }
         switch (kind)
         {
             case SpecialEffect.Clarity:

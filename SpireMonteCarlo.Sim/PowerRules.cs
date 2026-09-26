@@ -13,6 +13,12 @@ public enum PowerKind
     Regen,
     /// <summary>On an enemy: loses this much HP at the end of each of its turns.</summary>
     Demise,
+    /// <summary>Colorless powers (rules from the decompiled power classes).</summary>
+    Automation, Mayhem, Panache, Nostalgia, Stratagem, RollingBoulder, Entropy, HelloWorld, Calamity, Fasten, PrepTime,
+    /// <summary>The Gambit: any unblocked attack damage kills the player.</summary>
+    Gambit,
+    /// <summary>Panic Button: no Block from cards for this many turns.</summary>
+    NoCardBlock,
     Vulnerable,
     Weak,
     Frail,
