@@ -12,6 +12,33 @@ public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int Figh
 /// and later card rewards, rest sites, and "?" rooms follow default policies. Two runs with the same seed see the
 /// same luck, so different decks can be compared fairly.
 /// </summary>
+/// <summary>
+/// The player's state a rollout starts from (HP in real, unscaled points). A decision option is this state after the choice:
+/// the same snapshot with a different deck, HP, gold, relics, or first step on the map.
+/// </summary>
+public sealed class RolloutStart
+{
+    public required List<CardDef> Deck { get; init; }
+    public int Hp { get; set; }
+    public int MaxHp { get; set; }
+    public int Gold { get; set; }
+    public List<string> Relics { get; init; } = new();
+    public List<string> Potions { get; init; } = new();
+    public int RemovalsUsed { get; set; }
+
+    /// <summary>Relics gained by the decision that still need their pickup effect (max HP, potion slots, upgrades).</summary>
+    public List<string> AcquireOnStart { get; init; } = new();
+
+    /// <summary>The node the player walks to first, instead of the route policy's choice.</summary>
+    public MapCoordinate? ForcedNext { get; set; }
+
+    public RolloutStart Copy() => new()
+    {
+        Deck = Deck.ToList(), Hp = Hp, MaxHp = MaxHp, Gold = Gold, Relics = Relics.ToList(), Potions = Potions.ToList(),
+        RemovalsUsed = RemovalsUsed, AcquireOnStart = AcquireOnStart.ToList(), ForcedNext = ForcedNext,
+    };
+}
+
 public sealed class ActRollout
 {
     private const float MonsterBase = 0.1f, TreasureBase = 0.02f, ShopBase = 0.03f;
@@ -81,10 +108,26 @@ public sealed class ActRollout
     /// <summary>True when the snapshot lists the actual upcoming encounters (otherwise they are sampled).</summary>
     public bool HasExactPlan => _snap.Plan is { Normal.Count: > 0 } || _snap.Plan?.Boss != null;
 
-    public RolloutResult Run(IReadOnlyList<CardDef> startDeck, ulong seed)
+    /// <summary>The snapshot's state with the given deck; a decision then changes it (heal, upgrade, buy, take a relic, pick a path) to make one option.</summary>
+    public RolloutStart InitialStart(IReadOnlyList<CardDef> deck) => new()
     {
-        var deck = startDeck.ToList();
-        int hp = (int)Math.Round(_snap.Run.CurrentHp * PlayerHpScale), maxHp = (int)Math.Round(_snap.Run.MaxHp * PlayerHpScale);
+        Deck = deck.ToList(), Hp = _snap.Run.CurrentHp, MaxHp = _snap.Run.MaxHp, Gold = _snap.Run.Gold,
+        Relics = _snap.Relics.ToList(), Potions = _snap.Potions.Select(p => p.Id).ToList(),
+    };
+
+    /// <summary>Where the player stands on the map: the node itself, or the act's start point before the first move.</summary>
+    public MapCoordinate CurrentPoint => _snap.Map!.Current ?? StartPoint();
+
+    /// <summary>The nodes the player can move to next.</summary>
+    public IReadOnlyList<MapPointSnapshot> NextNodes => _points.TryGetValue(CurrentPoint, out MapPointSnapshot? here)
+        ? here.Children.Where(_points.ContainsKey).Select(c => _points[c]).ToList() : new List<MapPointSnapshot>();
+
+    public RolloutResult Run(IReadOnlyList<CardDef> startDeck, ulong seed) => Run(InitialStart(startDeck), seed);
+
+    public RolloutResult Run(RolloutStart start, ulong seed)
+    {
+        var deck = start.Deck.ToList();
+        int hp = (int)Math.Round(start.Hp * PlayerHpScale), maxHp = (int)Math.Round(start.MaxHp * PlayerHpScale);
         var pathRng = new SimRng(SimRng.Mix(seed, 0xA11CE));
         var rarity = new RarityOdds(_ascension, _snap.Odds?.CardRarityOffset ?? -0.05f);
         float mOdds = _snap.Odds?.UnknownMonster ?? MonsterBase, tOdds = _snap.Odds?.UnknownTreasure ?? TreasureBase, sOdds = _snap.Odds?.UnknownShop ?? ShopBase;
@@ -106,13 +149,13 @@ public sealed class ActRollout
         string? diedTo = null;
         int probeFights = 0, probeWins = 0;
 
-        var potions = _snap.Potions.Select(p => PotionLibrary.Find(p.Id)).OfType<PotionDef>().ToList();
+        var potions = start.Potions.Select(PotionLibrary.Find).OfType<PotionDef>().ToList();
         float potionOdds = PotionBaseOdds;
         int potionSlots = PotionSlots;
 
-        int gold = _snap.Run.Gold, removalsUsed = 0;
-        var owned = new HashSet<string>(_snap.Relics);
-        var relics = _snap.Relics.Select(RelicRules.Parse).Where(k => k != RelicKind.Unknown).ToList();
+        int gold = start.Gold, removalsUsed = start.RemovalsUsed;
+        var owned = new HashSet<string>(start.Relics);
+        var relics = start.Relics.Select(RelicRules.Parse).Where(k => k != RelicKind.Unknown).ToList();
         bool Own(RelicKind k) => relics.Contains(k);
         int Scaled(int amount) => (int)Math.Round(amount * PlayerHpScale);
 
@@ -270,11 +313,14 @@ public sealed class ActRollout
             return true;
         }
 
+        // Relics the decision itself hands out (an Ancient's choice, a shop purchase) take effect before anything else happens.
+        foreach (string id in start.AcquireOnStart) Acquire(id, new SimRng(SimRng.Mix(seed, 0xA0C)));
+
         for (int step = 0; step < 40 && _points.TryGetValue(at, out MapPointSnapshot? here) && here.Children.Count > 0; step++)
         {
             var reachable = here.Children.Where(_points.ContainsKey).ToList();
             if (reachable.Count == 0) break;
-            at = ChooseNext(reachable, hp, maxHp, pathRng);
+            at = step == 0 && start.ForcedNext is MapCoordinate forced && reachable.Contains(forced) ? forced : ChooseNext(reachable, hp, maxHp, pathRng);
             MapPointSnapshot node = _points[at];
             string type = node.Type;
 

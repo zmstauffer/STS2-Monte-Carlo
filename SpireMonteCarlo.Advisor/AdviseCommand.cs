@@ -24,9 +24,9 @@ public static class AdviseCommand
         }
 
         RunSnapshot snapshot = SnapshotSerializer.Deserialize(File.ReadAllText(path));
-        if (snapshot.Decision != DecisionType.CardReward)
+        if (!DecisionAdvisor.Supports(snapshot))
         {
-            Console.Error.WriteLine($"Only card reward decisions are supported so far (this snapshot is '{snapshot.Decision}').");
+            Console.Error.WriteLine($"Decisions of type '{snapshot.Decision}' are not supported yet (card reward, rest site, card upgrade, map, shop, and Ancient relic choices are).");
             return 1;
         }
         if (!string.Equals(snapshot.Run.Character, "ironclad", StringComparison.OrdinalIgnoreCase))
@@ -37,7 +37,7 @@ public static class AdviseCommand
         var data = new SimData(cache);
 
         var sw = Stopwatch.StartNew();
-        AdviceReport report = AdviceEngine.EvaluateCardReward(data, snapshot, rollouts, seed);
+        AdviceReport report = DecisionAdvisor.Evaluate(data, snapshot, rollouts, seed);
         sw.Stop();
 
         Console.WriteLine(path);
@@ -46,26 +46,29 @@ public static class AdviseCommand
         Console.WriteLine(report.ExactPlan ? "Using this run's actual upcoming encounters." : "This snapshot has no encounter plan, so upcoming fights are sampled (less precise).");
         Console.WriteLine();
 
-        OptionReport skip = report.Options.First(o => o.CardId == null);
-        Console.WriteLine($"{"option",-22} {"survive",8} {"HP left",8} {"next-act elites",16} {"vs skip (survive)",20} {"vs skip (score)",18}");
+        OptionReport baseline = report.Options.First(o => o.IsBaseline);
+        int width = Math.Clamp(report.Options.Max(o => o.Label.Length), 22, 90);
+        Console.WriteLine($"{"option".PadRight(width)} {"survive",8} {"HP left",8} {"next-act elites",16} {"vs " + report.BaselineLabel + " (survive)",26} {"vs " + report.BaselineLabel + " (score)",24}");
         foreach (OptionReport o in report.Options)
         {
-            string versus = o.CardId == null ? "" : $"{100 * o.DeltaSurvival,+6:F1} pts +/-{200 * o.DeltaSurvivalSe:F1}";
-            string score = o.CardId == null ? "" : $"{o.DeltaValue,+6:F3} +/-{2 * o.DeltaValueSe:F3}{(o.ClearlyDifferentFromSkip ? "" : "  (unclear)")}";
-            Console.WriteLine($"{o.Label,-22} {100 * o.SurvivalRate,7:F1}% {o.MeanHpEnd,8:F1} {(double.IsNaN(o.ProbeWinRate) ? "" : $"{100 * o.ProbeWinRate:F0}% won"),16} {versus,20} {score,18}");
+            string versus = o.IsBaseline ? "" : $"{100 * o.DeltaSurvival,+6:F1} pts +/-{200 * o.DeltaSurvivalSe:F1}";
+            string score = o.IsBaseline ? "" : $"{o.DeltaValue,+6:F3} +/-{2 * o.DeltaValueSe:F3}{(o.ClearlyDifferentFromSkip ? "" : "  (unclear)")}";
+            string probe = double.IsNaN(o.ProbeWinRate) ? "" : $"{100 * o.ProbeWinRate:F0}% won";
+            Console.WriteLine($"{o.Label.PadRight(width)} {100 * o.SurvivalRate,7:F1}% {o.MeanHpEnd,8:F1} {probe,16} {versus,26} {score,24}");
         }
 
         Console.WriteLine();
         OptionReport best = report.Options[0];
-        if (best.CardId == null)
-            Console.WriteLine($"Suggestion: skip. None of the offered cards beat skipping ({100 * skip.SurvivalRate:F1}% survival, about {skip.MeanHpEnd:F0} HP left).");
+        if (best.IsBaseline)
+            Console.WriteLine($"Suggestion: {report.BaselineLabel}. None of the other options beat it ({100 * baseline.SurvivalRate:F1}% survival, about {baseline.MeanHpEnd:F0} HP left).");
         else if (!best.ClearlyDifferentFromSkip)
-            Console.WriteLine($"Suggestion: {best.Label} looks best, but it is not clearly better than skipping with this many simulations.");
+            Console.WriteLine($"Suggestion: {best.Label} looks best, but it is not clearly better than \"{report.BaselineLabel}\" with this many simulations.");
         else
-            Console.WriteLine($"Suggestion: take {best.Label}. It survives the act {100 * best.SurvivalRate:F1}% of the time versus {100 * skip.SurvivalRate:F1}% if you skip, ending with about {best.MeanHpEnd:F0} HP versus {skip.MeanHpEnd:F0}.");
+            Console.WriteLine($"Suggestion: {best.Label}. It survives the act {100 * best.SurvivalRate:F1}% of the time versus {100 * baseline.SurvivalRate:F1}% for \"{report.BaselineLabel}\", ending with about {best.MeanHpEnd:F0} HP versus {baseline.MeanHpEnd:F0}.");
 
-        if (skip.Killers.Count > 0)
-            Console.WriteLine($"Where runs die without the card: {string.Join(", ", skip.Killers.Select(k => $"{k.Encounter} x{k.Count}"))}");
+        if (baseline.Killers.Count > 0)
+            Console.WriteLine($"Where runs die with \"{report.BaselineLabel}\": {string.Join(", ", baseline.Killers.Select(k => $"{k.Encounter} x{k.Count}"))}");
+        foreach (string note in report.Notes) Console.WriteLine($"Note: {note}");
         if (report.ApproximateCards > 0)
             Console.WriteLine($"Caution: {report.ApproximateCards} card(s) involved have text the simulator only partly models.");
         if (report.UnmodelledFights > 0)

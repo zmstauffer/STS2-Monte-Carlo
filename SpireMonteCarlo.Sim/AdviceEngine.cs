@@ -5,8 +5,11 @@ namespace SpireMonteCarlo.Sim;
 public sealed class OptionReport
 {
     public required string Label { get; init; }
-    /// <summary>Null for "skip".</summary>
+    /// <summary>The card this option takes; null for "skip" and for options that aren't about a card.</summary>
     public string? CardId { get; init; }
+
+    /// <summary>The option the others are compared against (skip, rest, buy nothing, ...).</summary>
+    public bool IsBaseline { get; init; }
     public int Rollouts { get; init; }
     public double SurvivalRate { get; init; }
     /// <summary>Average HP at the end of the act, counting a death as 0.</summary>
@@ -36,6 +39,12 @@ public sealed class OptionReport
 public sealed class AdviceReport
 {
     public required string Decision { get; init; }
+
+    /// <summary>What the first option means, e.g. "Skip" or "Rest": every other option is compared with it.</summary>
+    public string BaselineLabel { get; init; } = "";
+
+    /// <summary>Things worth telling the reader: options whose effect the simulator can't model, and the like.</summary>
+    public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
     public required IReadOnlyList<OptionReport> Options { get; init; }
     public int Rollouts { get; init; }
     public bool ExactPlan { get; init; }
@@ -43,6 +52,9 @@ public sealed class AdviceReport
     public int UnmodelledFights { get; init; }
     public IReadOnlyList<string> UnknownCards { get; init; } = Array.Empty<string>();
 }
+
+/// <summary>One choice the player could make: a label and the state of the run after making it.</summary>
+public sealed record DecisionOption(string Label, string? CardId, RolloutStart Start);
 
 public static class AdviceEngine
 {
@@ -63,10 +75,18 @@ public static class AdviceEngine
         var rollout = new ActRollout(data, snapshot);
         List<CardDef> baseDeck = snapshot.Deck.Select(c => data.Cards.Get(c.Id, c.Upgraded)).ToList();
 
-        var options = new List<(string Label, string? Card, List<CardDef> Deck)> { ("Skip", null, baseDeck) };
+        var options = new List<DecisionOption> { new("Skip", null, rollout.InitialStart(baseDeck)) };
         foreach (CardSnapshot offered in snapshot.Offer.Cards)
-            options.Add((offered.Id, offered.Id, baseDeck.Append(data.Cards.Get(offered.Id, offered.Upgraded)).ToList()));
+            options.Add(new DecisionOption(offered.Id, offered.Id, rollout.InitialStart(baseDeck.Append(data.Cards.Get(offered.Id, offered.Upgraded)).ToList())));
+        return Evaluate(data, snapshot, rollout, options, rollouts, seed);
+    }
 
+    /// <summary>
+    /// Runs every option through the same simulated futures (same seeds, so the same luck) and reports how each does and how
+    /// it differs from the first option, the baseline.
+    /// </summary>
+    public static AdviceReport Evaluate(SimData data, RunSnapshot snapshot, ActRollout rollout, IReadOnlyList<DecisionOption> options, int rollouts, ulong seed, IReadOnlyList<string>? notes = null)
+    {
         var results = new RolloutResult[options.Count][];
         for (int j = 0; j < options.Count; j++) results[j] = new RolloutResult[rollouts];
 
@@ -74,7 +94,7 @@ public static class AdviceEngine
         {
             ulong rolloutSeed = SimRng.Mix(seed, (ulong)i);
             for (int j = 0; j < options.Count; j++)
-                results[j][i] = rollout.Run(options[j].Deck, rolloutSeed);
+                results[j][i] = rollout.Run(options[j].Start, rolloutSeed);
         });
 
         double[] skipValues = results[0].Select(ValueOf).ToArray();
@@ -96,7 +116,8 @@ public static class AdviceEngine
             reports.Add(new OptionReport
             {
                 Label = options[j].Label,
-                CardId = options[j].Card,
+                CardId = options[j].CardId,
+                IsBaseline = j == 0,
                 Rollouts = rollouts,
                 SurvivalRate = survivors / (double)rollouts,
                 MeanHpEnd = hp.Average(),
@@ -117,7 +138,9 @@ public static class AdviceEngine
             Options = reports.OrderByDescending(r => r.Value).ToList(),
             Rollouts = rollouts,
             ExactPlan = rollout.HasExactPlan,
-            ApproximateCards = baseDeck.Concat(options.Skip(1).Select(o => o.Deck[^1])).Count(c => c.Approximate),
+            BaselineLabel = options[0].Label,
+            Notes = notes ?? Array.Empty<string>(),
+            ApproximateCards = options.SelectMany(o => o.Start.Deck).Where(c => c.Approximate).Distinct().Count(),
             UnmodelledFights = results.SelectMany(r => r).Sum(r => r.UnmodelledFights) / options.Count,
             UnknownCards = data.Cards.UnknownIds.ToList(),
         };

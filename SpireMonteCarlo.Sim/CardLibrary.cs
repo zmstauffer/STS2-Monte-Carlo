@@ -43,6 +43,10 @@ public sealed class CardLibrary
             CardDef def = FromRecipe(id, upgraded)
                 ?? (_codex.TryGetValue(id, out CodexCard? card) ? Build(card, upgraded) : Unknown(id, upgraded));
             _cache[(id, upgraded)] = def;
+            // Cards built from Codex numbers have an upgraded form too, so rest sites and Armaments-style effects can upgrade them.
+            if (!upgraded && def.UpgradedForm == null && def.Kind is CardKind.Attack or CardKind.Skill or CardKind.Power
+                && _codex.TryGetValue(id, out CodexCard? source) && source.Upgrade is { Count: > 0 })
+                def.UpgradedForm = Get(id, true);
             return def;
         }
     }
