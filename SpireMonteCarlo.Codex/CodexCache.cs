@@ -115,6 +115,12 @@ public sealed class CodexCache
     public IReadOnlyDictionary<string, CodexCard> LoadCards() =>
         Read<List<CodexCard>>(Path.Combine("export", "cards.json")).ToDictionary(c => c.Id);
 
+    public IReadOnlyDictionary<string, CodexMonster> LoadMonsters() =>
+        Read<List<CodexMonster>>(Path.Combine("export", "monsters.json")).ToDictionary(m => m.Id);
+
+    public IReadOnlyList<CodexEncounter> LoadEncounters() =>
+        Read<List<CodexEncounter>>(Path.Combine("export", "encounters.json"));
+
     /// <summary>Base-card (non-upgraded) metric rows by id for one bracket, e.g. "wr50".</summary>
     public IReadOnlyDictionary<string, CodexMetricRow> LoadMetrics(string type, string bracket) =>
         Read<CodexMetrics>(Path.Combine("metrics", $"{type}_{bracket}.json")).Rows

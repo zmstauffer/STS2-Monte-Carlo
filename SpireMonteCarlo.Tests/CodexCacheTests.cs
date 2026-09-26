@@ -131,3 +131,32 @@ public sealed class CodexCacheTests : IDisposable
         Assert.False(Directory.Exists(_root + ".staging"));
     }
 }
+
+/// <summary>Runs against the real cache built by 'advisor codex update'; does nothing if it hasn't been built.</summary>
+public class RealCodexDataTests
+{
+    private static CodexCache? RealCache()
+    {
+        var cache = new CodexCache();
+        return cache.ReadMeta() == null ? null : cache;
+    }
+
+    [Fact]
+    public void RealCardsMonstersAndEncountersDeserialize()
+    {
+        CodexCache? cache = RealCache();
+        if (cache == null) return;
+
+        var cards = cache.LoadCards();
+        Assert.Equal(6, cards["STRIKE_IRONCLAD"].DamageAmount);
+        Assert.Equal(1, cards["SHRUG_IT_OFF"].CardsDrawAmount);
+        Assert.Equal("Vulnerable", cards["BASH"].PowersApplied![0].Power);
+
+        var monsters = cache.LoadMonsters();
+        Assert.Equal(3, monsters["CORPSE_SLUG"].Moves.Count);
+        Assert.Equal("cycle", monsters["CORPSE_SLUG"].AttackPattern!.Type);
+        Assert.Equal(12, monsters["NIBBIT"].Moves.First(m => m.Id == "BUTT").Damage!.Normal);
+
+        Assert.Contains(cache.LoadEncounters(), e => e.Id == "CORPSE_SLUGS_NORMAL");
+    }
+}

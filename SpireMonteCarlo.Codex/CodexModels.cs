@@ -16,6 +16,24 @@ public sealed class CodexCard
     public string Color { get; set; } = "";
     public List<string>? Keywords { get; set; }
 
+    /// <summary>Self, AnyEnemy, AllEnemies, RandomEnemy, AnyAlly, ...</summary>
+    public string? Target { get; set; }
+    public string? DescriptionRaw { get; set; }
+    public JsonElement CardsDraw { get; set; }
+    public JsonElement EnergyGain { get; set; }
+    public JsonElement HpLoss { get; set; }
+    public List<CodexPowerApplied>? PowersApplied { get; set; }
+
+    /// <summary>Named numbers used by the card text (Damage, Block, Cards, ...).</summary>
+    public Dictionary<string, JsonElement>? Vars { get; set; }
+
+    /// <summary>Changes made by upgrading, keyed by lowercase var name, e.g. "damage": "+2", "cost": "-1".</summary>
+    public Dictionary<string, JsonElement>? Upgrade { get; set; }
+
+    public int? CardsDrawAmount => Number(CardsDraw);
+    public int? EnergyGainAmount => Number(EnergyGain);
+    public int? HpLossAmount => Number(HpLoss);
+
     // The export mixes numbers with strings like "+3" (a scaling amount), so keep the raw value.
     public JsonElement Damage { get; set; }
     public JsonElement Block { get; set; }
@@ -52,4 +70,105 @@ public sealed class CodexMetrics
     public double? BaselineWinRate { get; set; }
     public int TotalRuns { get; set; }
     public List<CodexMetricRow> Rows { get; set; } = new();
+}
+
+public sealed class CodexPowerApplied
+{
+    public string Power { get; set; } = "";
+    public JsonElement Amount { get; set; }
+    public string? PowerKey { get; set; }
+    public int AmountValue => Amount.ValueKind == JsonValueKind.Number && Amount.TryGetInt32(out int v) ? v : 0;
+}
+
+public sealed class CodexMonsterPower
+{
+    public string PowerId { get; set; } = "";
+    /// <summary>"player" or "self" (other values seen for ally-targeting moves).</summary>
+    public string? Target { get; set; }
+    public int? Amount { get; set; }
+}
+
+public sealed class CodexDamage
+{
+    public int? Normal { get; set; }
+    /// <summary>Value at Deadly Enemies (A9) and above.</summary>
+    public int? Ascension { get; set; }
+    public int? HitCount { get; set; }
+}
+
+public sealed class CodexMove
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Attack, Defend, Buff, Debuff, Status, Summon, ... joined with " + ".</summary>
+    public string Intent { get; set; } = "";
+    public int? Block { get; set; }
+    public CodexDamage? Damage { get; set; }
+    public List<CodexMonsterPower>? Powers { get; set; }
+}
+
+public sealed class CodexBranch
+{
+    public string? MoveId { get; set; }
+    public string? Condition { get; set; }
+}
+
+public sealed class CodexState
+{
+    public string Id { get; set; } = "";
+    /// <summary>move, random, or conditional.</summary>
+    public string Type { get; set; } = "";
+    public string? MoveId { get; set; }
+    public string? Next { get; set; }
+    public List<CodexBranch>? Branches { get; set; }
+}
+
+public sealed class CodexAttackPattern
+{
+    /// <summary>cycle, random, conditional, mixed.</summary>
+    public string? Type { get; set; }
+    public string? InitialMove { get; set; }
+    public List<CodexState>? States { get; set; }
+}
+
+public sealed class CodexInnatePower
+{
+    public string PowerId { get; set; } = "";
+    public int Amount { get; set; }
+}
+
+public sealed class CodexMonster
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Normal, Elite, Boss.</summary>
+    public string Type { get; set; } = "";
+    public int? MinHp { get; set; }
+    /// <summary>Null when the monster's HP is fixed at MinHp.</summary>
+    public int? MaxHp { get; set; }
+    /// <summary>Values at Tough Enemies (A8) and above.</summary>
+    public int? MinHpAscension { get; set; }
+    public int? MaxHpAscension { get; set; }
+    public List<CodexMove> Moves { get; set; } = new();
+    public CodexAttackPattern? AttackPattern { get; set; }
+    public List<CodexInnatePower>? InnatePowers { get; set; }
+}
+
+public sealed class CodexEncounterMonster
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
+public sealed class CodexEncounter
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Monster, Elite, Boss.</summary>
+    public string RoomType { get; set; } = "";
+    public bool IsWeak { get; set; }
+    /// <summary>"Act 1 - Overgrowth", "Act 1 - Underdocks", "Act 2 - Hive", "Act 3 - Glory", or null for event fights.</summary>
+    public string? Act { get; set; }
+    /// <summary>The monster pool; some encounters (e.g. slimes) spawn only a subset.</summary>
+    public List<CodexEncounterMonster> Monsters { get; set; } = new();
 }
