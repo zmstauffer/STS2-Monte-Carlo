@@ -5,7 +5,7 @@ namespace SpireMonteCarlo.Sim;
 /// <summary>Everything the simulator reads from the local Codex cache, loaded once and shared read-only.</summary>
 public sealed class SimData
 {
-    public const string EloBracket = "a10";
+    public static readonly string EloBracket = Environment.GetEnvironmentVariable("SIM_BRACKET") ?? "a10";
 
     public CardLibrary Cards { get; }
     public MonsterLibrary Monsters { get; }
