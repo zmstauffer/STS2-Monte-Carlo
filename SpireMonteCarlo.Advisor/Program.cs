@@ -1,21 +1,21 @@
 using SpireMonteCarlo.Advisor;
+using SpireMonteCarlo.Codex;
 using SpireMonteCarlo.Contracts;
 
-// Usage: advisor <snapshot.json>   or   advisor --latest
-// Loads a snapshot written by the mod and describes it. Runs without the game.
-string? path = args.Length == 1 && args[0] == "--latest" ? FindLatestSnapshot() : args.FirstOrDefault();
+// advisor <snapshot.json> | --latest        describe a snapshot written by the mod (runs without the game)
+// advisor codex update [--force] [--game-dir <path>]   refresh the local Spire Codex cache
+// advisor codex status                       what the cache holds and how current it is
+// advisor codex check <snapshot.json>|--latest   ids in a snapshot that the cache doesn't know
+if (args.Length > 0 && args[0] == "codex")
+    return await CodexCommands.RunAsync(args.Skip(1).ToArray());
+
+string? path = args.Length == 1 && args[0] == "--latest" ? SnapshotFiles.FindLatest() : args.FirstOrDefault();
 if (path == null || !File.Exists(path))
 {
-    Console.Error.WriteLine("Usage: advisor <snapshot.json> | advisor --latest");
+    Console.Error.WriteLine("Usage: advisor <snapshot.json> | --latest | codex <update|status|check>");
     return 1;
 }
 
 Console.WriteLine(path);
 Console.Write(SnapshotSummary.Render(SnapshotSerializer.Deserialize(File.ReadAllText(path))));
 return 0;
-
-static string? FindLatestSnapshot()
-{
-    string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpireMonteCarlo", "snapshots");
-    return Directory.Exists(folder) ? Directory.GetFiles(folder, "*.json").OrderBy(f => f).LastOrDefault() : null;
-}

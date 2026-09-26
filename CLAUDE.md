@@ -88,7 +88,15 @@ Snapshots and the app:
 - `SpireMonteCarlo.Contracts` defines `RunSnapshot` (run info, deck, relics, potions, the offer, event options, the act map) and `SnapshotSerializer` (snake_case JSON). The mod writes one snapshot per decision screen to `%APPDATA%\SpireMonteCarlo\snapshots\` (newest 500 kept). Real captured snapshots live in `SpireMonteCarlo.Tests/Fixtures/`.
 - `SpireMonteCarlo.Advisor` is the standalone app (console for now). It loads snapshots from files, so it runs without the game. No IPC yet; the IPC contract comes once the app produces recommendations worth sending back.
 
-Next: build the Spire Codex cache (`%APPDATA%\SpireMonteCarlo\`), then the first simulator milestone (one character, Act 1, card rewards).
+The Codex cache (`SpireMonteCarlo.Codex`, `advisor codex update|status|check`) lives in `%APPDATA%\SpireMonteCarlo\codex\`: the entity export (cards, relics, potions, monsters, encounters, events, ...), card/relic/potion metrics for brackets `all`, `wr50`, and `a10`, and encounter stats. `update` refreshes only when the game version changed (or with `--force`) and swaps the new cache in only if every request succeeded. It uses ~11 requests; the export endpoint is limited to 10/hour. An optional `SPIRE_CODEX_API_KEY` env var raises the other limits. Findings that matter for the simulator:
+
+- Codex lags the game: v0.111.0 has 596 card classes, Codex has 577, and its export data was last changed in May–July 2026. The simulator must tolerate ids Codex doesn't know. `advisor codex check <snapshot>` reports them; every id in the captured fixtures is covered.
+- Elo only exists in the global metrics rows (per-character metric rows have `elo: null`, and the `character` filter on `/runs/scores` doesn't filter). That's fine: a card is only ever offered to its own character (or is colorless), so Elo is comparable within a reward screen. Filter by the card's `color`.
+- Bracket sizes differ a lot: `a10` has ~496k runs, `wr50` ~20k, `all` ~1.8M. Prefer `a10` for stability and keep `wr50` for a stronger-player comparison.
+- Skip has no Elo row. From `offered`/`picked` (assuming 3 cards per screen) players skip roughly 35–38% of card reward screens for every character in both brackets. Starting rule: treat Skip as a fourth option whose Bradley-Terry weight is set so its probability matches that rate; revisit once there's a way to tell when skipping is right for a given deck.
+- `damage`/`block` in the export are sometimes strings like `"+3"` (scaling), so `CodexCard` keeps the raw JSON and exposes numeric accessors.
+
+Next: the first simulator milestone (one character, Act 1, card rewards). Still to define later: the IPC between the mod and the app.
 
 ## Notes on the original codebase
 
