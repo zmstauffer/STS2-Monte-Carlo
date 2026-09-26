@@ -64,7 +64,16 @@ public sealed partial class Combat
     public int Stakes { get; }
 
     /// <summary>A copy of the whole combat as it stands, including its random stream, for trying plays out. <paramref name="salt"/> (non-zero) makes the copy's random draws differ from the real ones.</summary>
-    public Combat Clone(ulong salt = 0) => new(this, salt);
+    public Combat Clone(ulong salt = 0)
+    {
+        if (!_pilesScanned)
+        {
+            _pilesScanned = true;
+            if (!_cardsChangeInPlace)
+                _cardsChangeInPlace = DrawPile.Concat(Hand).Concat(DiscardPile).Concat(ExhaustPile).Any(ChangesInPlace);
+        }
+        return new Combat(this, salt);
+    }
 
     private Combat(Combat src, ulong salt)
     {
@@ -83,6 +92,7 @@ public sealed partial class Combat
         // Cards in the hand are the ones a play can change in place; the other piles only ever have cards moved between them, so a
         // copy can share the card objects unless some card is changed in place wherever it lies (Stomp's cost reduction).
         _cardsChangeInPlace = src._cardsChangeInPlace;
+        _pilesScanned = true;
         foreach (CardDef c in src.Hand) Hand.Add(c.Copy());
         if (_cardsChangeInPlace)
         {

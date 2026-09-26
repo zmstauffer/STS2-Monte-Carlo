@@ -4,7 +4,7 @@ namespace SpireMonteCarlo.Sim;
 public sealed partial class Combat
 {
     private bool _playerTurn;
-    private bool _cardsChangeInPlace;
+    private bool _cardsChangeInPlace, _pilesScanned;
 
     /// <summary>Cards that change themselves while they lie in a pile or when played from one (Stomp, Rampage, Thrash): a cloned combat can't share these.</summary>
     private static bool ChangesInPlace(CardDef c) =>
