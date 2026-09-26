@@ -410,6 +410,9 @@ public sealed class BasicBot
                     break;
                 case EffectOp.TransformAttacks:
                     break;
+                case EffectOp.Special:
+                    score += SpecialValue(combat, (SpecialEffect)effect.Arg, amount);
+                    break;
             }
         }
 
@@ -430,6 +433,37 @@ public sealed class BasicBot
         return useful * (lethalDanger ? 3.0 : t.Block) + (gain - useful) * t.ExcessBlock;
     }
 
+    /// <summary>What the potion effects that need their own code are worth, in the same rough units as damage dealt.</summary>
+    private static double SpecialValue(Combat combat, SpecialEffect kind, int amount)
+    {
+        int hand = combat.Hand.Count;
+        return kind switch
+        {
+            SpecialEffect.Clarity => 9,
+            SpecialEffect.RadiantTincture => 10,
+            SpecialEffect.ShipInABottle => 2 * amount * 0.9,
+            SpecialEffect.Duplicator => 10,
+            SpecialEffect.Gigantification => 20,
+            SpecialEffect.StableSerum => 4,
+            SpecialEffect.BottledPotential => 8,
+            SpecialEffect.Ashwater => 2,
+            SpecialEffect.GamblersBrew => 3,
+            SpecialEffect.DropletOfPrecognition => 6,
+            SpecialEffect.LiquidMemories => 7,
+            SpecialEffect.EntropicBrew => 6,
+            SpecialEffect.Glowwater => hand <= 2 ? 10 : 4,
+            SpecialEffect.SneckoOil => 8,
+            SpecialEffect.SoldiersStew => 10,
+            SpecialEffect.OrobicAcid => 16,
+            SpecialEffect.GenerateColorless => 9,
+            SpecialEffect.GenerateSkill => 9,
+            SpecialEffect.GeneratePower => 11,
+            SpecialEffect.TouchOfInsanity => 6,
+            SpecialEffect.FoulPotion => 0.5 * amount,
+            _ => 0,
+        };
+    }
+
     /// <summary>What a power is worth to have from now on, in the same rough units as damage dealt.</summary>
     private double PowerValue(Combat combat, PowerKind power, int amount)
     {
@@ -441,6 +475,9 @@ public sealed class BasicBot
             PowerKind.Plating or PowerKind.Metallicize => amount * 5,
             PowerKind.TempStrength => amount * 3,
             PowerKind.TempDexterity => amount * 2.5,
+            PowerKind.Buffer => amount * 10,
+            PowerKind.Regen => amount * (amount + 1) / 2.0 * 0.9,
+            PowerKind.Ritual => amount * turnsLeft * 3,
             PowerKind.Barricade => 12,
             PowerKind.Corruption => 12,
             PowerKind.CrimsonMantle => amount * turnsLeft * 0.4 - turnsLeft * 0.8,
@@ -538,6 +575,10 @@ public sealed class BasicBot
                 }
             case PowerKind.Poison:
                 return amount * 2.5;
+            case PowerKind.Shrink:
+                return Math.Min(amount, 4) * combat.IntentDamage(enemy) * 0.3 + 0.5;
+            case PowerKind.Demise:
+                return amount * 4;
             case PowerKind.TempStrengthDown:
                 {
                     int hits = enemy.Move is { IsAttack: true } m ? m.HitsAt(combat.Ascension) : 0;

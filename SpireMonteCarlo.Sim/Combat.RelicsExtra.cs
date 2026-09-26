@@ -12,6 +12,8 @@ public sealed partial class Combat
     {
         public bool BurningSticksUsed, ThrowingAxeUsed, LampUsed, MusicBoxUsedThisTurn, PaelsEyeUsed, GamblingDone, SkippedFirstTurnDraw;
         public int PollinousTurns, HappyFlowerTurns, IronClubCards, HandPlaysThisTurn, BlurTurns, TearsPending, RetainHandTurns;
+        public int StewReplays;
+        public bool RetainNow;
         public int ClarityTurns, RadiantTurns, ShipBlockPending, LegionCooldown, DuplicatorPlays, GoldSpent, GiganticAttack;
         public bool LegionTriggeredLastTurn, ExtraTurnPending;
         public CardDef? LastAttackThisTurn, LastAttackLastTurn;
@@ -311,7 +313,9 @@ public sealed partial class Combat
             return true;
         }
         _rr.ExtraTurnPending = false;
+        _rr.RetainNow = RetainsWholeHand;
         if (_rr.RetainHandTurns > 0) _rr.RetainHandTurns--;
+        _rr.DuplicatorPlays = 0;
         return false;
     }
 

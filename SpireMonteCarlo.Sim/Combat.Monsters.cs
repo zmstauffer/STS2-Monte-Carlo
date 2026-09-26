@@ -127,9 +127,15 @@ public sealed partial class Combat
     /// <summary>End of the enemy phase for monsters with a turn-based power: Nemesis alternates Intangible on and off; High Voltage adds Strength.</summary>
     private void EndOfEnemyTurnPowers()
     {
-        foreach (Enemy e in Enemies)
+        foreach (Enemy e in Enemies.ToList())
         {
             if (!e.Alive) continue;
+            if (e.Powers[(int)PowerKind.Shrink] > 0) e.Powers[(int)PowerKind.Shrink]--;
+            if (e.Powers[(int)PowerKind.Demise] > 0)
+            {
+                e.Hp -= e.Powers[(int)PowerKind.Demise];   // unblockable
+                if (e.Hp <= 0) { e.Hp = 0; OnEnemyDeath(e); continue; }
+            }
             e.Powers[(int)PowerKind.Strength] += e.Powers[(int)PowerKind.HighVoltage];
             if (e.Powers[(int)PowerKind.Nemesis] > 0)
             {

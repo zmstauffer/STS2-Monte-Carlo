@@ -7,6 +7,12 @@ public enum PowerKind
     Dexterity,
     /// <summary>On the player: every card drawn gets a random cost from 0 to 3 for the rest of the combat.</summary>
     Confused,
+    /// <summary>The next HP loss is prevented; each stack stops one.</summary>
+    Buffer,
+    /// <summary>Heals this much at the end of the turn, then loses one stack.</summary>
+    Regen,
+    /// <summary>On an enemy: loses this much HP at the end of each of its turns.</summary>
+    Demise,
     Vulnerable,
     Weak,
     Frail,

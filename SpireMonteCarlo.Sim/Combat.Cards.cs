@@ -183,7 +183,7 @@ public sealed partial class Combat
                 plays = 2;
                 PlayerPowers[(int)PowerKind.OneTwoPunch]--;
             }
-            plays += RelicExtraPlays(card) + card.Replay + EnchantExtraPlays(card);
+            plays += RelicExtraPlays(card) + card.Replay + EnchantExtraPlays(card) + (card.IsStrike ? _rr.StewReplays : 0);
             for (int p = 0; p < plays && Result != CombatResult.Lost; p++) RunEffects(card, target, x);
 
             CardsPlayed++;
@@ -191,6 +191,7 @@ public sealed partial class Combat
             foreach (Enemy e in Enemies)
                 if (e.Powers[(int)PowerKind.Slow] > 0) e.SlowCards++;
             if (card.Kind == CardKind.Attack && PlayerPowers[(int)PowerKind.Rage] > 0) GainBlockRaw(PlayerPowers[(int)PowerKind.Rage]);
+            if (card.Kind == CardKind.Attack) _rr.GiganticAttack = 0;
             RelicAfterCard(card, costPaid);
             RelicAfterCardExtra(card);
             AfterCardTender();
@@ -275,6 +276,7 @@ public sealed partial class Combat
                 foreach (Enemy e in Enemies.ToList())
                     if (Targetable(e)) DamageEnemy(e, amount, fromCard: false);
                 break;
+            case EffectOp.Special: ApplySpecial((SpecialEffect)effect.Arg, amount, ctx.Target); break;
             case EffectOp.BlockFlat: GainBlockRaw(amount); break;
             case EffectOp.DoubleBlock: GainBlockRaw(Block); break;
             case EffectOp.HealPercent: Heal((int)(MaxHp * amount / 100.0)); break;

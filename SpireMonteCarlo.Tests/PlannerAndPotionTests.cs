@@ -226,12 +226,18 @@ public class PlannerAndPotionTests
     }
 
     [Fact]
-    public void PotionRollsFollowTheGamesRarityOddsAndSkipUnmodelledOnes()
+    public void PotionRollsFollowTheGamesRarityOdds()
     {
         var rng = new SimRng(99);
-        int none = 0, n = 20000;
-        for (int i = 0; i < n; i++) if (PotionLibrary.Roll(rng) == null) none++;
-        double fraction = (double)none / n;
-        Assert.InRange(fraction, 0.33, 0.41);
+        int n = 20000;
+        var byRarity = new Dictionary<PotionRarity, int>();
+        for (int i = 0; i < n; i++)
+        {
+            PotionDef roll = PotionLibrary.Roll(rng)!;
+            byRarity[roll.Rarity] = byRarity.GetValueOrDefault(roll.Rarity) + 1;
+        }
+        Assert.InRange((double)byRarity[PotionRarity.Rare] / n, 0.08, 0.12);
+        Assert.InRange((double)byRarity[PotionRarity.Uncommon] / n, 0.22, 0.28);
+        Assert.InRange((double)byRarity[PotionRarity.Common] / n, 0.62, 0.68);
     }
 }

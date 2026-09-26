@@ -213,6 +213,8 @@ public sealed partial class Combat
         }
         if (_penNibActive) d *= 2;
         d *= EnchantDamageMultiplier(card);
+        if (PlayerPowers[(int)PowerKind.Shrink] != 0) d *= 0.7;
+        if (_rr.GiganticAttack > 0 && card is { Kind: CardKind.Attack }) d *= 3;
         return (int)Math.Floor(d);
     }
 
@@ -231,6 +233,7 @@ public sealed partial class Combat
     {
         double d = Math.Max(0, baseDamage + attacker.Powers[(int)PowerKind.Strength] + attacker.Powers[(int)PowerKind.Vigor] + PlayerPowers[(int)PowerKind.Tainted]);
         if (attacker.Powers[(int)PowerKind.Weak] > 0) d *= 0.75;
+        if (attacker.Powers[(int)PowerKind.Shrink] != 0) d *= 0.7;
         if (PlayerPowers[(int)PowerKind.Vulnerable] > 0) d *= 1.5;
         if (PlayerPowers[(int)PowerKind.Colossus] > 0 && attacker.Powers[(int)PowerKind.Vulnerable] > 0) d *= 0.5;
         return (int)Math.Floor(d * EnemyDamageScale);
@@ -301,7 +304,7 @@ public sealed partial class Combat
         foreach (CardDef card in Hand.ToList())
         {
             if (card.IsEthereal || (PlayerPowers[(int)PowerKind.Hex] > 0 && card.Kind is not (CardKind.Status or CardKind.Curse))) ExhaustCard(card, causedByEthereal: true);
-            else if (!card.IsRetained && !RetainsWholeHand) DiscardPile.Add(card);
+            else if (!card.IsRetained && !_rr.RetainNow) DiscardPile.Add(card);
             else continue;
             Hand.Remove(card);
         }
@@ -314,6 +317,11 @@ public sealed partial class Combat
         // The Knowledge Demon's Disintegration hurts at the end of every turn.
         if (PlayerPowers[(int)PowerKind.Disintegration] > 0) LoseHp(PlayerPowers[(int)PowerKind.Disintegration]);
         if (Result != CombatResult.Ongoing) return;
+
+        // Regen heals and wears off; a player's Ritual turns into Strength; Shrink counts down.
+        if (PlayerPowers[(int)PowerKind.Regen] > 0) { Heal(Scaled(PlayerPowers[(int)PowerKind.Regen])); PlayerPowers[(int)PowerKind.Regen]--; }
+        PlayerPowers[(int)PowerKind.Strength] += PlayerPowers[(int)PowerKind.Ritual];
+        if (PlayerPowers[(int)PowerKind.Shrink] > 0) PlayerPowers[(int)PowerKind.Shrink]--;
 
         // Powers that end with the player's turn.
         PlayerPowers[(int)PowerKind.Rage] = 0;
@@ -400,6 +408,7 @@ public sealed partial class Combat
     private void LoseHp(int amount)
     {
         if (amount <= 0) return;
+        if (PlayerPowers[(int)PowerKind.Buffer] > 0) { PlayerPowers[(int)PowerKind.Buffer]--; return; }
         amount = RelicReduceHpLoss(amount);
         if (amount <= 0) return;
         Hp -= amount;

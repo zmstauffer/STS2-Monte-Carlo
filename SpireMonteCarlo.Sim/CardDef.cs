@@ -61,6 +61,16 @@ public enum EffectOp
     HealPercent,
     /// <summary>Doubles the block the player has (Fortifier).</summary>
     DoubleBlock,
+    /// <summary>An effect that needs its own code (see <see cref="SpecialEffect"/>); Arg is the effect, Amount its number.</summary>
+    Special,
+}
+
+/// <summary>The potion effects that are more than a number (timed buffs, generated cards, pile changes).</summary>
+public enum SpecialEffect
+{
+    None, Clarity, RadiantTincture, ShipInABottle, Duplicator, Gigantification, StableSerum, BottledPotential, Ashwater, GamblersBrew,
+    DropletOfPrecognition, LiquidMemories, EntropicBrew, Glowwater, SneckoOil, SoldiersStew, OrobicAcid, GenerateColorless, GenerateSkill,
+    GeneratePower, TouchOfInsanity, FoulPotion,
 }
 
 /// <summary>Where a number that isn't fixed comes from.</summary>

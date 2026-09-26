@@ -40,28 +40,22 @@ public static class PotionLibrary
 
     public static PotionDef? Find(string id) => ById.GetValueOrDefault(id);
 
-    /// <summary>How many potions the Ironclad's reward pool holds per rarity (shared + Ironclad, from the Codex export): only some are modelled.</summary>
-    private const int PoolSizePerRarity = 16;
-
     private static readonly PotionDef[][] ModelledByRarity =
         Enum.GetValues<PotionRarity>().Select(r => ById.Values.Where(p => p.Rarity == r && !p.Token).OrderBy(p => p.Id, StringComparer.Ordinal).ToArray()).ToArray();
 
-    /// <summary>
-    /// A random potion the way the game rolls one (10% rare, 25% uncommon, else common; then uniform within the rarity).
-    /// Returns null when the roll lands on a potion the simulator doesn't model, which is treated as no potion at all.
-    /// </summary>
+    /// <summary>A random potion the way the game rolls one (10% rare, 25% uncommon, else common; then uniform within the rarity).</summary>
     public static PotionDef? Roll(SimRng rng)
     {
         double r = rng.NextDouble();
         PotionRarity rarity = r <= 0.1 ? PotionRarity.Rare : r <= 0.35 ? PotionRarity.Uncommon : PotionRarity.Common;
-        int pick = rng.Next(PoolSizePerRarity);
-        PotionDef[] modelled = ModelledByRarity[(int)rarity];
-        return pick < modelled.Length ? modelled[pick] : null;
+        PotionDef[] pool = ModelledByRarity[(int)rarity];
+        return pool.Length == 0 ? null : pool[rng.Next(pool.Length)];
     }
 
     private static PotionDef P(string id, PotionRarity rarity, Effect[] effects, bool target = false, bool anyTime = false, bool automatic = false, bool token = false) =>
         new() { Id = id, Rarity = rarity, Effects = effects, NeedsTarget = target, AnyTime = anyTime, Automatic = automatic, Token = token };
 
+    private static Effect Special(SpecialEffect kind, int amount = 0) => new(EffectOp.Special, amount, Arg: (int)kind);
     private static Effect Buff(PowerKind power, int amount) => new(EffectOp.BuffSelf, amount, Power: power);
     private static Effect Debuff(PowerKind power, int amount) => new(EffectOp.DebuffEnemy, amount, Power: power);
 
@@ -82,6 +76,9 @@ public static class PotionLibrary
         yield return P("BLOOD_POTION", C, new[] { new Effect(EffectOp.HealPercent, 20) }, anyTime: true);
         yield return P("ATTACK_POTION", C, new[] { new Effect(EffectOp.GenerateFreeAttack, 1) });
 
+        yield return P("COLORLESS_POTION", C, new[] { Special(SpecialEffect.GenerateColorless) });
+        yield return P("SKILL_POTION", C, new[] { Special(SpecialEffect.GenerateSkill) });
+        yield return P("POWER_POTION", C, new[] { Special(SpecialEffect.GeneratePower) });
         yield return P("POTION_SHAPED_ROCK", C, new[] { new Effect(EffectOp.DamageFlat, 15) }, target: true, token: true);
 
         yield return P("HEART_OF_IRON", U, new[] { Buff(PowerKind.Plating, 7) });
@@ -89,6 +86,35 @@ public static class PotionLibrary
         yield return P("FYSH_OIL", U, new[] { Buff(PowerKind.Strength, 1), Buff(PowerKind.Dexterity, 1) });
         yield return P("CURE_ALL", U, new[] { new Effect(EffectOp.Energy, 1), new Effect(EffectOp.Draw, 2) });
         yield return P("BLESSING_OF_THE_FORGE", U, new[] { new Effect(EffectOp.UpgradeAllInHand, 0) });
+
+        yield return P("ASHWATER", U, new[] { Special(SpecialEffect.Ashwater) });
+        yield return P("CLARITY", U, new[] { Special(SpecialEffect.Clarity) });
+        yield return P("DUPLICATOR", U, new[] { Special(SpecialEffect.Duplicator) });
+        yield return P("GAMBLERS_BREW", U, new[] { Special(SpecialEffect.GamblersBrew) });
+        yield return P("LIQUID_BRONZE", U, new[] { Buff(PowerKind.Thorns, 3) });
+        yield return P("POTION_OF_BINDING", U, new[] { Debuff(PowerKind.Weak, 1) with { Op = EffectOp.DebuffAll }, Debuff(PowerKind.Vulnerable, 1) with { Op = EffectOp.DebuffAll } });
+        yield return P("POWDERED_DEMISE", U, new[] { Debuff(PowerKind.Demise, 9) }, target: true);
+        yield return P("RADIANT_TINCTURE", U, new[] { Special(SpecialEffect.RadiantTincture) });
+        yield return P("REGEN_POTION", U, new[] { Buff(PowerKind.Regen, 5) });
+        yield return P("STABLE_SERUM", U, new[] { Special(SpecialEffect.StableSerum, 2) });
+        yield return P("TOUCH_OF_INSANITY", U, new[] { Special(SpecialEffect.TouchOfInsanity) });
+
+        yield return P("BEETLE_JUICE", R, new[] { Debuff(PowerKind.Shrink, 4) }, target: true);
+        yield return P("BOTTLED_POTENTIAL", R, new[] { Special(SpecialEffect.BottledPotential, 5) });
+        yield return P("DROPLET_OF_PRECOGNITION", R, new[] { Special(SpecialEffect.DropletOfPrecognition) });
+        yield return P("ENTROPIC_BREW", R, new[] { Special(SpecialEffect.EntropicBrew) });
+        yield return P("GIGANTIFICATION_POTION", R, new[] { Special(SpecialEffect.Gigantification) });
+        yield return P("LIQUID_MEMORIES", R, new[] { Special(SpecialEffect.LiquidMemories) });
+        yield return P("LUCKY_TONIC", R, new[] { Buff(PowerKind.Buffer, 1) });
+        yield return P("MAZALETHS_GIFT", R, new[] { Buff(PowerKind.Ritual, 1) });
+        yield return P("OROBIC_ACID", R, new[] { Special(SpecialEffect.OrobicAcid) });
+        yield return P("SHIP_IN_A_BOTTLE", R, new[] { Special(SpecialEffect.ShipInABottle, 10) });
+        yield return P("SNECKO_OIL", R, new[] { Special(SpecialEffect.SneckoOil, 7) });
+        yield return P("SOLDIERS_STEW", R, new[] { Special(SpecialEffect.SoldiersStew) });
+
+        // Event potions: never dropped as rewards.
+        yield return P("FOUL_POTION", C, new[] { Special(SpecialEffect.FoulPotion, 12) }, token: true);
+        yield return P("GLOWWATER_POTION", C, new[] { Special(SpecialEffect.Glowwater, 10) }, token: true);
 
         yield return P("FAIRY_IN_A_BOTTLE", R, Array.Empty<Effect>(), automatic: true);
         yield return P("FRUIT_JUICE", R, new[] { new Effect(EffectOp.GainMaxHp, 5) }, anyTime: true);
