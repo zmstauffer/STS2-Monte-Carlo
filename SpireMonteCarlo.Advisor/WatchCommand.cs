@@ -1,0 +1,123 @@
+using System.Diagnostics;
+using SpireMonteCarlo.Codex;
+using SpireMonteCarlo.Contracts;
+using SpireMonteCarlo.Sim;
+
+namespace SpireMonteCarlo.Advisor;
+
+/// <summary>
+/// advisor watch [--dir SNAPSHOTS] [--out ADVICE] [--n ROLLOUTS] [--seed S] [--all] [--once] [--timeout SECONDS]
+///
+/// Runs next to the game: every time the mod writes a snapshot of a decision screen, work out the advice for it, print it, and
+/// write it as advice\latest.json / latest.txt (plus one file per snapshot). Snapshots that already exist when it starts are
+/// ignored unless --all is given. If several arrive while it is busy, only the newest is advised on: older decisions are over.
+/// </summary>
+public static class WatchCommand
+{
+    private static readonly string AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+    public static string DefaultSnapshotFolder => Path.Combine(AppData, "SpireMonteCarlo", "snapshots");
+    public static string DefaultAdviceFolder => Path.Combine(AppData, "SpireMonteCarlo", "advice");
+
+    public static int Run(string[] args)
+    {
+        string snapshots = Option(args, "--dir") ?? DefaultSnapshotFolder;
+        string advice = Option(args, "--out") ?? DefaultAdviceFolder;
+        int? fixedRollouts = Option(args, "--n") is { } n ? int.Parse(n) : null;
+        ulong seed = ulong.Parse(Option(args, "--seed") ?? "1");
+        bool once = args.Contains("--once");
+        double timeout = double.Parse(Option(args, "--timeout") ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+
+        var cache = new CodexCache();
+        if (cache.ReadMeta() == null)
+        {
+            Console.Error.WriteLine("No Codex cache. Run 'advisor codex update' first.");
+            return 1;
+        }
+        Directory.CreateDirectory(snapshots);
+        Directory.CreateDirectory(advice);
+
+        Console.WriteLine("Loading game data...");
+        var loading = Stopwatch.StartNew();
+        var data = new SimData(cache);
+        Console.WriteLine($"Ready in {loading.Elapsed.TotalSeconds:F1}s. Watching {snapshots} (Ctrl+C to stop). Advice goes to {advice}.");
+
+        var seen = new HashSet<string>(args.Contains("--all") ? Array.Empty<string>() : Directory.GetFiles(snapshots, "*.json"), StringComparer.OrdinalIgnoreCase);
+        using var cancel = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+        var clock = Stopwatch.StartNew();
+
+        while (!cancel.IsCancellationRequested)
+        {
+            string[] fresh = Directory.GetFiles(snapshots, "*.json").Where(f => !seen.Contains(f)).OrderBy(f => f, StringComparer.Ordinal).ToArray();
+            if (fresh.Length > 0)
+            {
+                foreach (string skipped in fresh.SkipLast(1)) seen.Add(skipped);   // superseded before we got to them
+                string latest = fresh[^1];
+                seen.Add(latest);
+                Advise(data, latest, advice, fixedRollouts, seed);
+                if (once) return 0;
+            }
+            if (timeout > 0 && clock.Elapsed.TotalSeconds > timeout) return once ? 2 : 0;
+            cancel.Token.WaitHandle.WaitOne(400);
+        }
+        return 0;
+    }
+
+    /// <summary>Advises on one snapshot file and writes the results; problems are reported and never stop the watch.</summary>
+    public static bool Advise(SimData data, string path, string adviceFolder, int? fixedRollouts, ulong seed)
+    {
+        try
+        {
+            RunSnapshot snapshot = ReadWhenReady(path);
+            if (!DecisionAdvisor.Supports(snapshot))
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {Path.GetFileName(path)}: {snapshot.Decision}{(snapshot.EventId != null ? " " + snapshot.EventId : "")} - nothing to advise on.");
+                return false;
+            }
+
+            int rollouts = fixedRollouts ?? DecisionAdvisor.DefaultRollouts(snapshot);
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {Path.GetFileName(path)}: {snapshot.Decision}{(snapshot.EventId != null ? " " + snapshot.EventId : "")} - thinking...");
+            var sw = Stopwatch.StartNew();
+            AdviceReport report = DecisionAdvisor.Evaluate(data, snapshot, rollouts, seed);
+            sw.Stop();
+
+            string text = AdviceFormatter.RenderText(Path.GetFileName(path), snapshot, report, rollouts, sw.Elapsed.TotalSeconds);
+            AdviceResult result = AdviceFormatter.ToResult(path, snapshot, report, rollouts, sw.Elapsed.TotalSeconds);
+            string json = AdviceSerializer.Serialize(result);
+            string name = Path.GetFileNameWithoutExtension(path);
+            File.WriteAllText(Path.Combine(adviceFolder, name + ".json"), json);
+            File.WriteAllText(Path.Combine(adviceFolder, "latest.json"), json);
+            File.WriteAllText(Path.Combine(adviceFolder, "latest.txt"), text);
+
+            Console.WriteLine();
+            Console.Write(text);
+            Console.WriteLine(new string('-', 80));
+            return true;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {Path.GetFileName(path)}: could not advise ({e.GetType().Name}: {e.Message})");
+            return false;
+        }
+    }
+
+    /// <summary>The mod may still be writing the file when it first appears; try again for a couple of seconds.</summary>
+    private static RunSnapshot ReadWhenReady(string path)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try { return SnapshotSerializer.Deserialize(File.ReadAllText(path)); }
+            catch (Exception e) when (attempt < 20 && (e is IOException || e is Newtonsoft.Json.JsonException))
+            {
+                Thread.Sleep(100);
+            }
+        }
+    }
+
+    private static string? Option(string[] args, string name)
+    {
+        int i = Array.IndexOf(args, name);
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+    }
+}

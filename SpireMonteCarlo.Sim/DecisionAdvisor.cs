@@ -16,6 +16,16 @@ public static class DecisionAdvisor
         _ => false,
     };
 
+    /// <summary>How many simulated futures per option give a steady answer without a long wait: decisions with many options get fewer each.</summary>
+    public static int DefaultRollouts(RunSnapshot snapshot) => snapshot.Decision switch
+    {
+        DecisionType.Shop => 600,
+        DecisionType.RestSite or DecisionType.CardUpgrade => 800,
+        DecisionType.Map => 1000,
+        DecisionType.Event => 1200,
+        _ => 2000,
+    };
+
     public static AdviceReport Evaluate(SimData data, RunSnapshot snapshot, int rollouts, ulong seed) => snapshot.Decision switch
     {
         DecisionType.CardReward => AdviceEngine.EvaluateCardReward(data, snapshot, rollouts, seed),
