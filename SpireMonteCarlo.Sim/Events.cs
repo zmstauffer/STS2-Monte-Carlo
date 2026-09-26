@@ -178,7 +178,7 @@ public sealed class EventState
         if (Relics.Contains(id)) return;
         Relics.Add(id);
         PendingRelics.Add(id);
-        if (RelicRules.Parse(id) == RelicKind.Unknown) Notes.Add($"Relic {id} has effects the simulator doesn't model.");
+        if (RelicRules.Parse(id) == RelicKind.Unknown && !RelicPickups.Has(id) && !RelicRules.IsInert(id)) Notes.Add($"Relic {id} has effects the simulator doesn't model.");
     }
 
     public void GainRandomPotion()
