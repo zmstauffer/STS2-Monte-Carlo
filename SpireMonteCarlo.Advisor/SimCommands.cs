@@ -185,6 +185,7 @@ public static class SimCommands
             Contracts.RunSnapshot snap = Contracts.SnapshotSerializer.Deserialize(File.ReadAllText(mapPath));
             snap.Run.Character = "ironclad"; snap.Run.Ascension = ascension; snap.Run.Act = 1;
             snap.Run.MaxHp = ironclad.StartingHp;
+            snap.Run.Gold = ironclad.StartingGold;
             snap.Run.CurrentHp = ascension >= 2 ? (int)Math.Round(0.8 * ironclad.StartingHp) : ironclad.StartingHp;   // the first Ancient heals 80% of max HP from A2
             snap.Relics = new List<string> { "BURNING_BLOOD" };
             snap.Map!.Current = null; snap.Map.Visited = new();

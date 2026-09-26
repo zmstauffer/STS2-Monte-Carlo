@@ -60,6 +60,8 @@ public static class RelicRules
 public sealed class RelicPool
 {
     private readonly string[][] _byRarity;   // 0 common, 1 uncommon, 2 rare
+    private readonly string[] _shop;
+    private readonly Dictionary<string, int> _price = new();
 
     public RelicPool(IEnumerable<CodexRelic> relics, string character)
     {
@@ -68,6 +70,19 @@ public sealed class RelicPool
         _byRarity = new[] { "Common Relic", "Uncommon Relic", "Rare Relic" }
             .Select(rarity => all.Where(r => r.Rarity == rarity).Select(r => r.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray())
             .ToArray();
+        _shop = all.Where(r => r.Rarity == "Shop Relic").Select(r => r.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        foreach (CodexRelic r in all)
+            if (r.MerchantPrice != null) _price[r.Id] = r.MerchantPrice.Base;
+    }
+
+    /// <summary>What the merchant charges for the relic before his random +-15%.</summary>
+    public int BasePrice(string id) => _price.GetValueOrDefault(id, 200);
+
+    /// <summary>A relic of the merchant's own "Shop" rarity that the player doesn't own.</summary>
+    public string? RollShopRarity(SimRng rng, ICollection<string> owned)
+    {
+        var free = _shop.Where(id => !owned.Contains(id)).ToList();
+        return free.Count == 0 ? null : free[rng.Next(free.Count)];
     }
 
     /// <summary>A relic id the player doesn't own, or null if the rolled rarity has none left.</summary>

@@ -58,6 +58,8 @@ public static class FightSimulator
     private static void TraceTurnStart(Combat c, Action<string> trace)
     {
         trace($"  turn {c.Turn}: HP {c.Hp}/{c.MaxHp}, block {c.Block}, energy {c.Energy}, hand [{string.Join(", ", c.Hand)}]{(c.Potions.Count > 0 ? $", potions [{string.Join(", ", c.Potions.Select(p => p.Id))}]" : "")}");
+        string mine = string.Join(" ", Enum.GetValues<PowerKind>().Where(p => c.PlayerPowers[(int)p] != 0).Select(p => $"{p}{c.PlayerPowers[(int)p]}"));
+        if (mine.Length > 0) trace($"    player powers: {mine}");
         foreach (Enemy e in c.Enemies)
         {
             if (!e.Alive) continue;

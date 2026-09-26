@@ -220,4 +220,12 @@ public sealed class CodexRelic
     public string Name { get; set; } = "";
     public string Rarity { get; set; } = "";
     public string Pool { get; set; } = "";
+    public CodexMerchantPrice? MerchantPrice { get; set; }
+}
+
+public sealed class CodexMerchantPrice
+{
+    public int Base { get; set; }
+    public int Min { get; set; }
+    public int Max { get; set; }
 }

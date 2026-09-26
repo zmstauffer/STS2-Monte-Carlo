@@ -41,6 +41,10 @@ public sealed class RewardPool
 {
     private readonly Dictionary<CardRarity, string[]> _byRarity;
     private readonly IReadOnlyDictionary<string, double> _elo;
+    private readonly Dictionary<(string Type, CardRarity Rarity), string[]> _byTypeAndRarity = new();
+    private readonly Dictionary<CardRarity, string[]> _colorless = new();
+    private readonly Dictionary<string, CardRarity> _rarityOf = new();
+    private readonly HashSet<string> _colorlessIds = new();
 
     public const double DefaultElo = 1547;   // the mean Ironclad card, for cards Codex has no Elo for
 
@@ -51,6 +55,47 @@ public sealed class RewardPool
         _byRarity = new Dictionary<CardRarity, string[]>();
         foreach (CardRarity rarity in Enum.GetValues<CardRarity>())
             _byRarity[rarity] = cards.Values.Where(c => c.Color == color && c.Rarity == rarity.ToString()).Select(c => c.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        foreach (CodexCard c in cards.Values)
+            if ((c.Color == color || c.Color == "colorless") && Enum.TryParse(c.Rarity, out CardRarity parsed))
+            {
+                _rarityOf[c.Id] = parsed;
+                if (c.Color == "colorless") _colorlessIds.Add(c.Id);
+            }
+        foreach (CardRarity rarity in Enum.GetValues<CardRarity>())
+        {
+            foreach (string type in new[] { "Attack", "Skill", "Power" })
+                _byTypeAndRarity[(type, rarity)] = cards.Values.Where(c => c.Color == color && c.Type == type && c.Rarity == rarity.ToString()).Select(c => c.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
+            _colorless[rarity] = cards.Values.Where(c => c.Color == "colorless" && c.Rarity == rarity.ToString()).Select(c => c.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        }
+    }
+
+    /// <summary>A merchant's card of a given type: the rarity is rolled first, falling back to a lower rarity when the character has none of that type (Ironclad has no common Powers).</summary>
+    public string? RollShopCard(string type, RarityOdds odds, SimRng rng, ICollection<string> exclude)
+    {
+        CardRarity rarity = odds.Roll(RewardKind.Normal, rng);
+        for (int r = (int)rarity; r >= 0; r--)
+        {
+            var candidates = _byTypeAndRarity[(type, (CardRarity)r)].Where(id => !exclude.Contains(id)).ToList();
+            if (candidates.Count > 0) return candidates[rng.Next(candidates.Count)];
+        }
+        for (int r = (int)rarity + 1; r <= (int)CardRarity.Rare; r++)
+        {
+            var candidates = _byTypeAndRarity[(type, (CardRarity)r)].Where(id => !exclude.Contains(id)).ToList();
+            if (candidates.Count > 0) return candidates[rng.Next(candidates.Count)];
+        }
+        return null;
+    }
+
+    public bool IsColorless(string cardId) => _colorlessIds.Contains(cardId);
+
+    /// <summary>The card's rarity for pricing (Common for anything the pool doesn't list).</summary>
+    public CardRarity RarityOf(string cardId) => _rarityOf.GetValueOrDefault(cardId, CardRarity.Common);
+
+    /// <summary>A merchant's colorless card of the given rarity (the shop always has one uncommon and one rare).</summary>
+    public string? RollColorless(CardRarity rarity, SimRng rng, ICollection<string> exclude)
+    {
+        var candidates = _colorless[rarity].Where(id => !exclude.Contains(id)).ToList();
+        return candidates.Count == 0 ? null : candidates[rng.Next(candidates.Count)];
     }
 
     public double Elo(string cardId) => _elo.TryGetValue(cardId, out double e) ? e : DefaultElo;

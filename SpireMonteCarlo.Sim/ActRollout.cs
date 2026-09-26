@@ -31,11 +31,10 @@ public sealed class ActRollout
     /// </summary>
     public double PlayerHpScale { get; init; } = CalibratedPlayerHpScale;
 
-    // Re-fit after relics went in and Act 1 started at 80% HP like the real A2+ runs (before: 3.25): 2.6 gives 65% Act 1
-    // survival (real ~65%) with per-elite fatal rates near the real ones; 2.8 gives 75%, 3.0 gives 82%. Bosses are still off:
-    // Lagavulin Matriarch and The Kin too lethal, Waterfall Giant too easy. Still unmodelled: the Ancient boon, shops, events,
-    // and most rare relics.
-    public const double CalibratedPlayerHpScale = 2.6;
+    // Re-fit after relics (was 3.25), 80% start HP, and shops went in: 2.4 gives 56% Act 1 survival, 2.5 gives 64% (real ~65%)
+    // with per-elite fatal rates near the real ones, 2.6 gives 69%. Bosses are still off: Lagavulin Matriarch and The Kin
+    // too lethal, Waterfall Giant too easy. Still unmodelled: the Ancient boon, events, and most rare relics.
+    public const double CalibratedPlayerHpScale = 2.5;
 
     /// <summary>
     /// The HP scale used in the next-act probe. Act 2 enemies hit harder than the Act 1 scale can absorb for a deck that has
@@ -111,6 +110,7 @@ public sealed class ActRollout
         float potionOdds = PotionBaseOdds;
         int potionSlots = PotionSlots;
 
+        int gold = _snap.Run.Gold, removalsUsed = 0;
         var owned = new HashSet<string>(_snap.Relics);
         var relics = _snap.Relics.Select(RelicRules.Parse).Where(k => k != RelicKind.Unknown).ToList();
         bool Own(RelicKind k) => relics.Contains(k);
@@ -164,6 +164,48 @@ public sealed class ActRollout
             else if (potions.Count < potionSlots) potions.Add(found);
         }
 
+        // What a typical player does in a shop: remove a Strike/Defend (or a curse) first, then buy a relic that does something,
+        // then cards the community would take over skipping, then potions if a slot is free.
+        bool RemoveWorstCard()
+        {
+            int worst = -1, worstRank = int.MaxValue;
+            for (int i = 0; i < deck.Count; i++)
+            {
+                int rank = deck[i].Kind is CardKind.Curse or CardKind.Status ? 0 : deck[i].Id.StartsWith("STRIKE_") ? 1 : deck[i].Id.StartsWith("DEFEND_") ? 2 : int.MaxValue;
+                if (rank < worstRank) { worstRank = rank; worst = i; }
+            }
+            if (worst < 0) return false;
+            deck.RemoveAt(worst);
+            return true;
+        }
+
+        void VisitShop(SimRng rng)
+        {
+            List<ShopItem> stock = ShopModel.Generate(_pool, _relicPool, _ascension, owned, rng);
+            for (int guard = 0; guard < 20; guard++)
+            {
+                int removal = ShopModel.RemovalPrice(_ascension, removalsUsed);
+                if (gold >= removal && RemoveWorstCard()) { gold -= removal; removalsUsed++; continue; }
+
+                ShopItem? relic = stock.Where(i => i.Kind == ShopKind.Relic && i.Price <= gold && RelicRules.Parse(i.Id) != RelicKind.Unknown).OrderByDescending(i => i.Price).FirstOrDefault();
+                if (relic != null) { gold -= relic.Price; stock.Remove(relic); Acquire(relic.Id, rng); continue; }
+
+                double bar = PickPolicy.SkipElo(deck.Count);
+                ShopItem? card = stock.Where(i => i.Kind == ShopKind.Card && i.Price <= gold && _pool.HasElo(i.Id) && _pool.Elo(i.Id) >= bar).OrderByDescending(i => _pool.Elo(i.Id)).FirstOrDefault();
+                if (card != null) { gold -= card.Price; stock.Remove(card); deck.Add(_data.Cards.Get(card.Id, false)); continue; }
+
+                ShopItem? potion = potions.Count < potionSlots ? stock.Where(i => i.Kind == ShopKind.Potion && i.Price <= gold).OrderByDescending(i => i.Price).FirstOrDefault() : null;
+                if (potion != null && PotionLibrary.Find(potion.Id) is { } bought)
+                {
+                    gold -= potion.Price;
+                    stock.Remove(potion);
+                    if (bought.Id == "FRUIT_JUICE") GainMaxHp(5); else potions.Add(bought);
+                    continue;
+                }
+                break;
+            }
+        }
+
         // The end-of-act deck fights a few next-act elites, each from the same post-boss HP, so decks that scale (and survive
         // Act 1 only barely) are told apart from decks that just get through it.
         void Probe()
@@ -207,6 +249,11 @@ public sealed class ActRollout
             won++;
             potions = result.PotionsLeft?.ToList() ?? potions;
             hp = Math.Min(maxHp, result.HpAfter);   // Burning Blood and Meat on the Bone already healed inside the combat
+            {
+                (int lo, int hi) = encounter.RoomType switch { "Elite" => (35, 45), "Boss" => (100, 100), _ => (10, 20) };
+                double poverty = _ascension >= 3 ? 0.75 : 1.0;   // Ascension 3 (Poverty)
+                gold += new SimRng(SimRng.Mix(fightSeed, 0x601D)).NextInclusive((int)(lo * poverty), (int)(hi * poverty));
+            }
             if (reward is RewardKind dropKind) RollPotionDrop(new SimRng(SimRng.Mix(fightSeed, 0x9071)), dropKind == RewardKind.Elite);
             if (reward == RewardKind.Elite)
             {
@@ -249,6 +296,9 @@ public sealed class ActRollout
                     if (Own(RelicKind.EternalFeather)) hp = Math.Min(maxHp, hp + Scaled(3 * (deck.Count / 5)));
                     if (hp < 0.5 * maxHp) hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp) + (Own(RelicKind.RegalPillow) ? Scaled(15) : 0));
                     else UpgradeBest(deck);
+                    break;
+                case "Shop":
+                    VisitShop(pathRng);
                     break;
                 case "Treasure":
                     Acquire(_relicPool.Roll(pathRng, owned), pathRng);
