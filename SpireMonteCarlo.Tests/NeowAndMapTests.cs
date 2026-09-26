@@ -149,6 +149,41 @@ public class NeowAndMapTests
     }
 
     [Fact]
+    public void EggRelicsUpgradeMatchingCardsAsTheyJoinTheDeck()
+    {
+        if (Data == null) return;
+        EventState s = State();
+        s.Relics.AddRange(new[] { "MOLTEN_EGG", "TOXIC_EGG" });
+        s.AddCard("TWIN_STRIKE");     // an Attack
+        s.AddCard("SHRUG_IT_OFF");    // a Skill
+        s.AddCard("INFLAME");         // a Power, no Frozen Egg
+        Assert.True(s.Deck.Single(c => c.Id == "TWIN_STRIKE").Upgraded);
+        Assert.True(s.Deck.Single(c => c.Id == "SHRUG_IT_OFF").Upgraded);
+        Assert.False(s.Deck.Single(c => c.Id == "INFLAME").Upgraded);
+    }
+
+    [Fact]
+    public void MummifiedHandMakesACardFreeAfterEveryPower()
+    {
+        if (Data == null) return;
+        SimData data = Data;
+        var monster = new MonsterDef
+        {
+            Id = "DUMMY", HpMin = 500, HpMax = 500, HpMinTough = 500, HpMaxTough = 500,
+            Moves = { ["HIT"] = new MoveDef { Id = "HIT", Intent = "Buff", Hits = 1 } },
+            States = { ["HIT_MOVE"] = new StateDef { Id = "HIT_MOVE", Kind = StateKind.Move, MoveId = "HIT", Next = "HIT_MOVE" } },
+            InitialState = "HIT_MOVE",
+        };
+        var c = new Combat(Array.Empty<CardDef>(), 80, 80, new[] { monster }, 0, 3, services: data.Services, relics: new[] { RelicKind.MummifiedHand });
+        c.Hand.AddRange(data.ParseDeck("INFLAME,BASH").Select(x => x.Instantiate()));
+        int energy = c.Energy;
+        c.Play(c.Hand.FindIndex(x => x.Id == "INFLAME"), -1);
+        CardDef bash = c.Hand.Single(x => x.Id == "BASH");
+        Assert.Equal(0, c.EffectiveCost(bash));
+        Assert.Equal(energy - 1, c.Energy);
+    }
+
+    [Fact]
     public void ARunStartingActOneTakesANeowBoonAndAdviceForTheChoiceItselfDoesNot()
     {
         if (Data == null) return;

@@ -56,7 +56,12 @@ public sealed class EventState
     // ---- cards ----
     public void AddCard(string id, bool upgraded = false)
     {
-        if (Data.Cards.Contains(id)) Deck.Add(Data.Cards.Get(id, upgraded));
+        if (Data.Cards.Contains(id))
+        {
+            CardDef card = Data.Cards.Get(id, upgraded);
+            if (!upgraded && card.UpgradedForm != null && DeckPolicies.EggUpgrades(card.Kind, Relics)) card = Data.Cards.Get(id, true);
+            Deck.Add(card);
+        }
         else Notes.Add($"Card {id} isn't known, so it was not added.");
     }
 
@@ -187,6 +192,15 @@ public sealed class EventState
 /// <summary>Deck-editing rules shared by rest sites, shops, and events.</summary>
 public static class DeckPolicies
 {
+    /// <summary>Molten, Toxic and Frozen Egg upgrade every Attack, Skill or Power the player takes into the deck.</summary>
+    public static bool EggUpgrades(CardKind kind, IEnumerable<string> relics) => kind switch
+    {
+        CardKind.Attack => relics.Contains("MOLTEN_EGG"),
+        CardKind.Skill => relics.Contains("TOXIC_EGG"),
+        CardKind.Power => relics.Contains("FROZEN_EGG"),
+        _ => false,
+    };
+
     /// <summary>Removes a curse or status first, then a Strike, then a Defend; false if the deck has none of those.</summary>
     public static bool RemoveWorst(List<CardDef> deck)
     {

@@ -165,6 +165,12 @@ public sealed partial class Combat
                 break;
             case CardKind.Power:
                 if (Has(RelicKind.GamePiece)) DrawCards(1);
+                if (Has(RelicKind.MummifiedHand))
+                {
+                    // Mummified Hand: another card in hand that costs energy becomes free this turn.
+                    var costly = Hand.Where(c => c != card && c.CurrentCost >= 1 && !c.FreeThisTurn).ToList();
+                    if (costly.Count > 0) costly[Rng.Next(costly.Count)].FreeThisTurn = true;
+                }
                 if (Has(RelicKind.Permafrost) && !_permafrostUsed) { _permafrostUsed = true; GainBlockRaw(7); }
                 _rainbowPower = true;
                 break;

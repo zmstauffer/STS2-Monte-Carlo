@@ -30,6 +30,10 @@ public enum RelicKind
     Strawberry, Pear, Mango, PotionBelt, WarPaint, Whetstone, RegalPillow, EternalFeather, Planisphere, FishingRod, StoneHumidifier,
     // Neow boons with lasting effects
     BoomingConch,
+    // rare relics that change what the run collects
+    MoltenEgg, ToxicEgg, FrozenEgg, OldCoin, PrayerWheel, WhiteStar, Shovel,
+    // rare relic acting in combat
+    MummifiedHand,
 }
 
 public static class RelicRules

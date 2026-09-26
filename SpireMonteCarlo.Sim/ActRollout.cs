@@ -222,9 +222,18 @@ public sealed class ActRollout
                 case RelicKind.Pear: GainMaxHp(10); break;
                 case RelicKind.Mango: GainMaxHp(14); break;
                 case RelicKind.PotionBelt: potionSlots += 2; break;
+                case RelicKind.OldCoin: gold += 300; break;
                 case RelicKind.WarPaint: UpgradeRandom(CardKind.Skill, 2, rng); break;
                 case RelicKind.Whetstone: UpgradeRandom(CardKind.Attack, 2, rng); break;
             }
+        }
+
+        // A card taken into the deck is upgraded on the way in by the matching Egg.
+        void AddToDeck(string id)
+        {
+            CardDef card = _data.Cards.Get(id, false);
+            if (card.UpgradedForm != null && DeckPolicies.EggUpgrades(card.Kind, owned)) card = _data.Cards.Get(id, true);
+            deck.Add(card);
         }
 
         // A Neow boon does its pickup effect through the same event machinery as everything else that edits the deck.
@@ -277,7 +286,7 @@ public sealed class ActRollout
 
                 double bar = PickPolicy.SkipElo(deck.Count);
                 ShopItem? card = stock.Where(i => i.Kind == ShopKind.Card && i.Price <= gold && _pool.HasElo(i.Id) && _pool.Elo(i.Id) >= bar).OrderByDescending(i => _pool.Elo(i.Id)).FirstOrDefault();
-                if (card != null) { gold -= card.Price; stock.Remove(card); deck.Add(_data.Cards.Get(card.Id, false)); continue; }
+                if (card != null) { gold -= card.Price; stock.Remove(card); AddToDeck(card.Id); continue; }
 
                 ShopItem? potion = potions.Count < potionSlots ? stock.Where(i => i.Kind == ShopKind.Potion && i.Price <= gold).OrderByDescending(i => i.Price).FirstOrDefault() : null;
                 if (potion != null && PotionLibrary.Find(potion.Id) is { } bought)
@@ -416,9 +425,21 @@ public sealed class ActRollout
             if (reward is RewardKind kind)
             {
                 var rewardRng = new SimRng(SimRng.Mix(fightSeed, 0xCA2D));
-                string[] offer = _pool.GenerateOffer(kind, rarity, rewardRng);
-                int pick = PickPolicy.Choose(offer, _pool, deck.Count, rewardRng);
-                if (pick >= 0) deck.Add(_data.Cards.Get(offer[pick], false));
+                // Prayer Wheel adds a second card reward after ordinary fights; White Star adds a rare-only one after elites.
+                int screens = 1 + (kind == RewardKind.Normal && Own(RelicKind.PrayerWheel) ? 1 : 0);
+                for (int screen = 0; screen < screens; screen++)
+                {
+                    string[] offer = _pool.GenerateOffer(kind, rarity, rewardRng);
+                    int pick = PickPolicy.Choose(offer, _pool, deck.Count, rewardRng);
+                    if (pick >= 0) AddToDeck(offer[pick]);
+                }
+                if (kind == RewardKind.Elite && Own(RelicKind.WhiteStar))
+                {
+                    var rares = new List<string>();
+                    for (int i = 0; i < 3; i++) if (_pool.RollClass(CardRarity.Rare, rewardRng, rares) is { } rare) rares.Add(rare);
+                    int pick = PickPolicy.Choose(rares, _pool, deck.Count, rewardRng);
+                    if (pick >= 0) AddToDeck(rares[pick]);
+                }
             }
             return true;
         }
@@ -473,6 +494,7 @@ public sealed class ActRollout
                         hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp) + (Own(RelicKind.RegalPillow) ? Scaled(15) : 0));
                         if (Own(RelicKind.StoneHumidifier)) GainMaxHp(5);
                     }
+                    else if (Own(RelicKind.Shovel)) Acquire(_relicPool.Roll(pathRng, owned), pathRng);   // dig up a relic instead of upgrading
                     else UpgradeBest(deck);
                     break;
                 case "Shop":
