@@ -119,6 +119,48 @@ public sealed partial class Combat
         }
     }
 
+    /// <summary>Adds a monster to the fight (a summon or a split); it may arrive stunned, as the Wrigglers from an infested monster do.</summary>
+    public Enemy? Spawn(string monsterId, bool arrivesStunned = false, string? slot = null)
+    {
+        MonsterDef? def = _services?.Monster(monsterId);
+        if (def == null) return null;
+        Enemy spawned = CreateEnemy(def);
+        spawned.AltStart = arrivesStunned;
+        spawned.SlotName = slot;
+        Enemies.Add(spawned);
+        spawned.Start(this);
+        MonsterBehaviors.For(def.Id)?.OnStart(this, spawned);
+        return spawned;
+    }
+
+    /// <summary>Ravenous (Corpse Slug): when another monster on its side dies it loses its next move and gains Strength.</summary>
+    private void OnAllyDied(Enemy dead)
+    {
+        foreach (Enemy ally in Enemies)
+        {
+            if (ally == dead || !ally.Alive || ally.Powers[(int)PowerKind.Ravenous] <= 0) continue;
+            ally.Stun();
+            ally.Powers[(int)PowerKind.Strength] += ally.Powers[(int)PowerKind.Ravenous];
+        }
+        // Constrict lasts only while the monster that applied it lives (the Slithering Strangler is the only one that does).
+        if (dead.Def.Id == "SLITHERING_STRANGLER") PlayerPowers[(int)PowerKind.Constrict] = 0;
+    }
+
+    /// <summary>Suck (Fossil Stalker): every attack hit that gets through block feeds it Strength.</summary>
+    private void AfterEnemyAttackHits(Enemy e, int hitsThroughBlock)
+    {
+        int suck = e.Powers[(int)PowerKind.Suck];
+        if (suck > 0 && hitsThroughBlock > 0) e.Powers[(int)PowerKind.Strength] += suck * hitsThroughBlock;
+    }
+
+    /// <summary>Constrict hurts at the end of each of the player's turns; Tangled and its extra attack cost last only through this turn.</summary>
+    private void EndOfTurnMonsterPowers()
+    {
+        int constrict = PlayerPowers[(int)PowerKind.Constrict];
+        if (constrict > 0) HitPlayer(constrict, null);
+        PlayerPowers[(int)PowerKind.Tangled] = 0;
+    }
+
     /// <summary>An attack that did no HP damage because the player's block soaked all of it: what Imbalanced watches for.</summary>
     private void AfterEnemyAttackFullyBlocked(Enemy e)
     {

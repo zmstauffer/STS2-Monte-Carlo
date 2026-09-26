@@ -160,3 +160,19 @@ public sealed class CrabRageBehavior : MonsterBehavior
         self.Powers[(int)PowerKind.CrabRage] = 0;
     }
 }
+
+/// <summary>The Gremlin Merc's Surprise (SurprisePower): when it dies a Fat Gremlin and a Sneaky Gremlin turn up, and the fight goes on.</summary>
+public sealed class GremlinMercBehavior : MonsterBehavior
+{
+    public override IReadOnlyCollection<string> Handled => new[] { "Surprise" };
+
+    public override bool OnDeath(Combat combat, Enemy self)
+    {
+        if (self.Powers[(int)PowerKind.Surprise] > 0 || self.Def.Innate.Any(p => p.Power == PowerKind.Surprise))
+        {
+            combat.Spawn("FAT_GREMLIN", slot: "fat");
+            combat.Spawn("SNEAKY_GREMLIN", slot: "sneaky");
+        }
+        return false;
+    }
+}

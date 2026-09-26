@@ -181,6 +181,7 @@ public sealed partial class Combat
         if (card.FreeThisTurn) return 0;
         if (PlayerPowers[(int)PowerKind.Corruption] > 0 && card.Kind == CardKind.Skill) return 0;
         if (PlayerPowers[(int)PowerKind.FreeAttack] > 0 && card.Kind == CardKind.Attack) return 0;
+        if (PlayerPowers[(int)PowerKind.Tangled] > 0 && card.Kind == CardKind.Attack) return card.CurrentCost + PlayerPowers[(int)PowerKind.Tangled];
         return card.CurrentCost;
     }
 
@@ -188,6 +189,7 @@ public sealed partial class Combat
     {
         if (Result != CombatResult.Ongoing || card.Cost == CardDef.Unplayable) return false;
         if (PlayerPowers[(int)PowerKind.Ringing] > 0 && CardsPlayedThisTurn >= 1) return false;
+        if (PlayerPowers[(int)PowerKind.Smoggy] > 0 && card.Kind == CardKind.Skill && _skillsThisTurn >= 1) return false;
         int cost = EffectiveCost(card);
         return cost == CardDef.XCost || cost <= Energy;
     }
@@ -288,6 +290,9 @@ public sealed partial class Combat
         }
         _playerTurn = false;
         RefundTender();
+
+        EndOfTurnMonsterPowers();
+        if (Result != CombatResult.Ongoing) return;
 
         // The Knowledge Demon's Disintegration hurts at the end of every turn.
         if (PlayerPowers[(int)PowerKind.Disintegration] > 0) LoseHp(PlayerPowers[(int)PowerKind.Disintegration]);
@@ -508,18 +513,12 @@ public sealed partial class Combat
         }
         e.Hp = 0;
         RelicOnEnemyDeath();
+        OnAllyDied(e);
         foreach (Enemy ally in Enemies.ToList())
             if (ally != e && ally.Alive) MonsterBehaviors.For(ally.Def.Id)?.OnAllyDeath(this, ally, e);
         if (e.Powers[(int)PowerKind.Infested] > 0 && _services?.Monster("WRIGGLER") is MonsterDef wriggler)
         {
-            for (int i = 0; i < 4; i++)
-            {
-                Enemy spawned = CreateEnemy(wriggler);
-                spawned.AltStart = true;    // they arrive stunned
-                spawned.SlotName = $"wriggler{i + 1}";
-                Enemies.Add(spawned);
-                spawned.Start(this);
-            }
+            for (int i = 0; i < 4; i++) Spawn("WRIGGLER", arrivesStunned: true, slot: $"wriggler{i + 1}");
         }
     }
 
@@ -625,9 +624,14 @@ public sealed partial class Combat
 
         int hits = move.Id == "EXPLODE" ? (e.ExplodeDamage > 0 ? 1 : 0) : (move.IsAttack ? move.HitsAt(Ascension) : 0);
         int baseDamage = MoveBaseDamage(e);
-        int hpBeforeAttack = Hp;
+        int hpBeforeAttack = Hp, throughBlock = 0;
         for (int h = 0; h < hits && Result == CombatResult.Ongoing && e.Alive; h++)
+        {
+            int hpBeforeHit = Hp;
             HitPlayer(EnemyAttackDamage(baseDamage, e), e);
+            if (Hp < hpBeforeHit) throughBlock++;
+        }
+        if (hits > 0) AfterEnemyAttackHits(e, throughBlock);
         if (hits > 0 && baseDamage > 0 && Hp == hpBeforeAttack && Result == CombatResult.Ongoing) AfterEnemyAttackFullyBlocked(e);
         if (hits > 0) e.Powers[(int)PowerKind.Vigor] = 0;   // Vigor is used up by the attack it boosts
         if (move.Id == "PRESSURE_GUN") e.GunBonus += 5;
