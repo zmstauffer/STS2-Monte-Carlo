@@ -365,6 +365,7 @@ public sealed partial class Combat
 
     private void HitPlayer(int damage, Enemy? attacker)
     {
+        if (attacker != null) attacker.DamageDealt += damage;
         int absorbed = Math.Min(Block, damage);
         Block -= absorbed;
         LoseHp(damage - absorbed);

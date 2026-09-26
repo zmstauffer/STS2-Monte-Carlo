@@ -59,6 +59,9 @@ public sealed class ActRollout
     private readonly Dictionary<MapCoordinate, MapPointSnapshot> _points;
     private readonly BasicBot _bot = new();
 
+    /// <summary>Whether a run from the very start of Act 1 takes a Neow boon first (advice for the Neow choice itself turns this off, since it evaluates the options).</summary>
+    public bool DefaultNeow { get; set; } = true;
+
     /// <summary>
     /// Multiplies the player's HP pool (current, max, and every heal) inside the simulation, so every HP amount stays in
     /// proportion: enemy damage, self-inflicted HP loss from cards, and healing. Tuned so a simulated Ironclad survives
@@ -74,7 +77,7 @@ public sealed class ActRollout
     // Re-fit after relics (was 3.25), 80% start HP, and shops went in: 2.4 gives 56% Act 1 survival, 2.5 gives 64% (real ~65%)
     // with per-elite fatal rates near the real ones, 2.6 gives 69%. Bosses are still off: Lagavulin Matriarch and The Kin
     // too lethal, Waterfall Giant too easy. Still unmodelled: the Ancient boon, events, and most rare relics.
-    public const double CalibratedPlayerHpScale = 2.5;
+    public const double CalibratedPlayerHpScale = 1.9;
 
     // Act 2, for the runs that beat Act 1 (sim calibrate-run --act2): at 3.5 Act 2 survival is 50%, at 4.0 59%; the Prisms, Entomancer
     // and Kaiser Crab reach their real fatal rates around 3.5-4.0, while the Decimillipede, Insatiable, and Knowledge Demon stay
@@ -185,7 +188,7 @@ public sealed class ActRollout
         float potionOdds = PotionBaseOdds;
         int potionSlots = PotionSlots;
 
-        int gold = start.Gold, removalsUsed = start.RemovalsUsed;
+        int gold = start.Gold, removalsUsed = start.RemovalsUsed, monsterFights = 0;
         var owned = new HashSet<string>(start.Relics);
         var relics = start.Relics.Select(RelicRules.Parse).Where(k => k != RelicKind.Unknown).ToList();
         bool Own(RelicKind k) => relics.Contains(k);
@@ -208,6 +211,7 @@ public sealed class ActRollout
         void Acquire(string? id, SimRng rng)
         {
             if (id == null || !owned.Add(id)) return;
+            if (NeowBoons.Has(id)) ApplyBoon(id, rng);
             RelicKind kind = RelicRules.Parse(id);
             if (kind == RelicKind.Unknown) return;
             relics.Add(kind);
@@ -220,6 +224,22 @@ public sealed class ActRollout
                 case RelicKind.WarPaint: UpgradeRandom(CardKind.Skill, 2, rng); break;
                 case RelicKind.Whetstone: UpgradeRandom(CardKind.Attack, 2, rng); break;
             }
+        }
+
+        // A Neow boon does its pickup effect through the same event machinery as everything else that edits the deck.
+        void ApplyBoon(string id, SimRng rng)
+        {
+            EventState st = MakeEventState(rng, 0);
+            NeowBoons.Apply(id, st);
+            ApplyEventState(st, "NEOW", rng);
+        }
+
+        void UpgradeAnyRandom(SimRng rng)
+        {
+            var candidates = Enumerable.Range(0, deck.Count).Where(i => !deck[i].Upgraded && deck[i].UpgradedForm != null).ToList();
+            if (candidates.Count == 0) return;
+            int pick = candidates[rng.Next(candidates.Count)];
+            deck[pick] = _data.Cards.Get(deck[pick].Id, true);
         }
 
         // Potion drops follow PotionRewardOdds: the chance falls 10% after a drop and rises 10% after none.
@@ -373,6 +393,7 @@ public sealed class ActRollout
             if (!result.Won) { diedTo = encounterId; hp = 0; return false; }
 
             won++;
+            if (encounter.RoomType == "Monster" && Own(RelicKind.FishingRod) && ++monsterFights % 3 == 0) UpgradeAnyRandom(new SimRng(SimRng.Mix(fightSeed, 0xF15)));
             potions = result.PotionsLeft?.ToList() ?? potions;
             foreach (string lost in result.LostCards ?? Array.Empty<string>())   // a thief got away with it
             {
@@ -410,6 +431,12 @@ public sealed class ActRollout
             if (!ApplyEventState(st, "CHOSEN", eventRng)) return Result(false);
         }
         foreach (string id in start.AcquireOnStart) Acquire(id, new SimRng(SimRng.Mix(seed, 0xA0C)));
+        // A run that is just starting takes one of Neow's boons first, the way a typical player would.
+        if (DefaultNeow && _snap.Run.Act == 1 && _snap.Map.Current == null && start.Relics.Count <= 1 && start.AcquireOnStart.Count == 0 && start.EventEffect == null)
+        {
+            var neowRng = new SimRng(SimRng.Mix(seed, 0x4E30));
+            Acquire(NeowBoons.Choose(NeowBoons.Offer(neowRng), neowRng), neowRng);
+        }
         foreach (PendingFight pending in start.PendingFights)
             if (!RunPendingFight(pending, new SimRng(SimRng.Mix(seed, 0xF16))))
                 return Result(false);
@@ -438,7 +465,13 @@ public sealed class ActRollout
                     break;
                 case "RestSite":
                     if (Own(RelicKind.EternalFeather)) hp = Math.Min(maxHp, hp + Scaled(3 * (deck.Count / 5)));
-                    if (hp < 0.5 * maxHp) hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp) + (Own(RelicKind.RegalPillow) ? Scaled(15) : 0));
+                    // The rest site right before the boss is for healing; the others heal when the player is hurt and upgrade otherwise.
+                    bool beforeBoss = _snap.Map!.Boss is MapCoordinate bossAt && node.Row >= bossAt.Row - 1;
+                    if (hp < (beforeBoss ? 0.9 : 0.6) * maxHp)
+                    {
+                        hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp) + (Own(RelicKind.RegalPillow) ? Scaled(15) : 0));
+                        if (Own(RelicKind.StoneHumidifier)) GainMaxHp(5);
+                    }
                     else UpgradeBest(deck);
                     break;
                 case "Shop":
@@ -497,15 +530,18 @@ public sealed class ActRollout
         return list;
     }
 
-    /// <summary>What a typical player thinks a room is worth on the way to the boss (HP-equivalents, rough).</summary>
-    private static double RoomValue(string type) => type switch
+    /// <summary>
+    /// What a typical player thinks a room is worth on the way to the boss (HP-equivalents, rough). Early fights are wanted for their card
+    /// rewards; elites are avoided until the deck has had time to grow, then taken for the relic.
+    /// </summary>
+    private static double RoomValue(string type, int row) => type switch
     {
-        "Monster" => -1.0,
-        "Elite" => -2.0,        // costs a lot of HP but pays a relic and a better card reward
+        "Monster" => row <= 6 ? 1.0 : row <= 10 ? 0.0 : -0.5,
+        "Elite" => row < 5 ? -8.0 : row < 9 ? 3.0 : 5.0,
         "RestSite" => 2.5,
         "Shop" => 1.0,
         "Treasure" => 1.5,
-        "Unknown" => 0.0,
+        "Unknown" => 0.3,
         _ => 0.0,
     };
 
@@ -522,7 +558,7 @@ public sealed class ActRollout
             double best = 0;
             var reachable = point.Children.Where(_points.ContainsKey).ToList();
             if (reachable.Count > 0) best = reachable.Max(PathValue);
-            return _pathValue[at] = RoomValue(point.Type) + best;
+            return _pathValue[at] = RoomValue(point.Type, at.Row) + best;
         }
     }
 
@@ -537,7 +573,7 @@ public sealed class ActRollout
         double Score(MapCoordinate c)
         {
             double v = PathValue(c);
-            if (_points[c].Type == "Elite" && fraction < 0.7) v -= 4;
+            if (_points[c].Type == "Elite") v -= fraction < 0.7 ? 6 : fraction < 0.85 ? 2 : 0;
             if (_points[c].Type == "RestSite" && fraction < 0.6) v += 2;
             return v;
         }

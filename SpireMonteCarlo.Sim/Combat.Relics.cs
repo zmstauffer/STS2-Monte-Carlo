@@ -72,6 +72,7 @@ public sealed partial class Combat
         if (Has(RelicKind.BronzeScales)) PlayerPowers[(int)PowerKind.Thorns] += 3;
         if (Has(RelicKind.Akabeko)) PlayerPowers[(int)PowerKind.Vigor] += 8;
         if (Has(RelicKind.Lantern)) Energy += 1;
+        if (Has(RelicKind.BoomingConch) && Stakes == 1) Energy += 1;
         if (Has(RelicKind.BloodVial)) Heal(Scaled(2));
         if (Has(RelicKind.Pantograph) && Stakes == 2) Heal(Scaled(25));
         if (Has(RelicKind.BagOfMarbles))
@@ -105,6 +106,7 @@ public sealed partial class Combat
         }
         if (_clayBlock > 0) { GainBlockRaw(_clayBlock); _clayBlock = 0; }
         if (Has(RelicKind.BagOfPreparation) && Turn == 1) extraDraw += 2;
+        if (Has(RelicKind.BoomingConch) && Turn == 1 && Stakes == 1) extraDraw += 2;
         if (Has(RelicKind.Pocketwatch) && Turn > 1 && _cardsLastTurn <= 3) extraDraw += 3;
         if (Has(RelicKind.MercuryHourglass)) HitAllEnemies(3);
         _carriedEnergy = 0;

@@ -27,7 +27,9 @@ public enum RelicKind
     // other reactions
     JossPaper, UnceasingTop, GremlinHorn, CharonsAshes, RuinedHelmet, MeatOnTheBone,
     // out of combat (applied by the rollout)
-    Strawberry, Pear, Mango, PotionBelt, WarPaint, Whetstone, RegalPillow, EternalFeather, Planisphere,
+    Strawberry, Pear, Mango, PotionBelt, WarPaint, Whetstone, RegalPillow, EternalFeather, Planisphere, FishingRod, StoneHumidifier,
+    // Neow boons with lasting effects
+    BoomingConch,
 }
 
 public static class RelicRules

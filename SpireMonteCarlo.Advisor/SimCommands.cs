@@ -181,7 +181,9 @@ public static class SimCommands
         CodexCharacter ironclad = data.Characters["IRONCLAD"];
         List<CardDef> deck = data.ParseDeck(string.Join(",", ironclad.StartingDeck.Select(DecompiledExtractor.ToSnakeCase)));
 
+        int mapCount = int.Parse(Option(args, "--maps") ?? "0");
         var rollouts = new List<ActRollout>();
+        for (int m = 0; m < Math.Max(1, mapCount); m++)
         foreach (string variant in new[] { "OVERGROWTH", "UNDERDOCKS" })
         {
             Contracts.RunSnapshot snap = Contracts.SnapshotSerializer.Deserialize(File.ReadAllText(mapPath));
@@ -190,6 +192,7 @@ public static class SimCommands
             snap.Run.Gold = ironclad.StartingGold;
             snap.Run.CurrentHp = ascension >= 2 ? (int)Math.Round(0.8 * ironclad.StartingHp) : ironclad.StartingHp;   // the first Ancient heals 80% of max HP from A2
             snap.Relics = new List<string> { "BURNING_BLOOD" };
+            if (mapCount > 0) snap.Map = MapGenerator.Generate(SimRng.Mix(99, (ulong)m));
             snap.Map!.Current = null; snap.Map.Visited = new();
             snap.Odds = null;
             snap.Plan = new Contracts.ActPlan { ActId = variant };

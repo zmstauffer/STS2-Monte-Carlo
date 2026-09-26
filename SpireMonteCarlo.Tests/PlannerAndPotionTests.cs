@@ -139,6 +139,38 @@ public class PlannerAndPotionTests
     }
 
     [Fact]
+    public void ThePlannerBlocksAHitThatWouldKillItEvenWhenAttackingLooksBetter()
+    {
+        if (Data == null) return;
+        // A 20-damage attack is coming at 15 HP and the enemy is far from dead: the energy has to go to Defend, not to Strikes.
+        Combat c = Setup("STRIKE_IRONCLAD,STRIKE_IRONCLAD,STRIKE_IRONCLAD,DEFEND_IRONCLAD,DEFEND_IRONCLAD", enemyHp: 300, enemyDamage: 20, hp: 15);
+        List<BotAction> plan = new BasicBot().Plan(c);
+        Assert.Equal(2, plan.Count(a => c.Hand[a.Tag - 1].Id == "DEFEND_IRONCLAD"));
+    }
+
+    [Fact]
+    public void ThePlannerAttacksWhenNothingThreatens()
+    {
+        if (Data == null) return;
+        Combat c = Setup("STRIKE_IRONCLAD,STRIKE_IRONCLAD,STRIKE_IRONCLAD,DEFEND_IRONCLAD,DEFEND_IRONCLAD", enemyHp: 300, enemyDamage: 0);
+        List<BotAction> plan = new BasicBot().Plan(c);
+        Assert.Equal(3, plan.Count(a => c.Hand[a.Tag - 1].Id == "STRIKE_IRONCLAD"));
+    }
+
+    [Fact]
+    public void ThePlannerKillsTheDeadlierEnemyFirst()
+    {
+        if (Data == null) return;
+        SimData data = Data;
+        // Two enemies with the same HP: the one that hits for 20 should take the Strikes before the one that hits for 2.
+        var c = new Combat(Array.Empty<CardDef>(), 80, 80, new[] { Dummy(30, 2), Dummy(30, 20) }, 0, 7, services: data.Services);
+        c.Hand.AddRange(data.ParseDeck("STRIKE_IRONCLAD,STRIKE_IRONCLAD,STRIKE_IRONCLAD").Select(x => x.Instantiate()));
+        List<BotAction> plan = new BasicBot().Plan(c);
+        Assert.NotEmpty(plan);
+        Assert.All(plan, a => Assert.Equal(1, a.Target));
+    }
+
+    [Fact]
     public void PlanningDoesNotChangeTheRealCombat()
     {
         if (Data == null) return;

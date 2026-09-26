@@ -152,7 +152,7 @@ public static class DecisionAdvisor
         {
             RolloutStart s = start.Copy();
             s.AcquireOnStart.Add(option.Relic!);
-            bool modelled = RelicRules.Parse(option.Relic!) != RelicKind.Unknown;
+            bool modelled = RelicRules.Parse(option.Relic!) != RelicKind.Unknown || NeowBoons.Has(option.Relic!);
             options.Add(new DecisionOption(option.Relic! + (modelled ? "" : " (not modelled)"), null, s));
             if (!modelled) notes.Add($"{option.Relic} has effects the simulator doesn't model, so it is scored as if it did nothing.");
         }

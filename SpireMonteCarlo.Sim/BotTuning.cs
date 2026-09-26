@@ -24,11 +24,17 @@ public sealed class BotTuning
     /// <summary>Multiplier on the value of every other power card.</summary>
     public double Powers = 1.0;
     /// <summary>1 to judge a turn by playing out the enemy phase (HP actually lost plus the enemies' HP times their price in future HP) instead of summing per-card values.</summary>
-    public double Leaf = 0;
+    public double Leaf = 1;
     /// <summary>Leaf mode: damage per turn the deck is expected to deal, which sets how much HP an enemy's remaining life costs us.</summary>
-    public double Dpt = 15;
+    public double Dpt = 22.5;
     /// <summary>Leaf mode: incoming damage per turn we expect to block away in later turns anyway.</summary>
-    public double SpareBlock = 5;
+    public double SpareBlock = 3;
+    /// <summary>Leaf mode: how many enemy turns ahead the incoming damage is averaged over.</summary>
+    public double Horizon = 3;
+    /// <summary>Leaf mode: the least threat an enemy counts for, as a share of the damage its average attack move deals.</summary>
+    public double BaseThreat = 0.6;
+    /// <summary>Leaf mode: value of each point of enemy HP removed even when nothing it does hurts us, so plans still push the fight along.</summary>
+    public double Progress = 0.2;
     /// <summary>Leaf mode: weight on the value of powers gained this turn.</summary>
     public double PowerGain = 1.0;
 

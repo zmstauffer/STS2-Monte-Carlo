@@ -132,19 +132,50 @@ public sealed class BasicBot
         Combat c = state.Clone(salt);
         int hpBefore = c.Hp;
         c.EndPlayerTurn();
-        if (c.Result == CombatResult.Lost) return -1000;
+        if (c.Result == CombatResult.Lost) return -100000;
         double lost = hpBefore - c.Hp;
         if (c.Result == CombatResult.Won) return powers + 50 - lost;
-        double perTurn = Math.Max(0, c.IncomingDamage() - Tuning.SpareBlock);
-        double price = perTurn / Tuning.Dpt;
-        double remaining = 0;
+        // How hard the enemies will hit over the next few turns if we did nothing: this sees Ritual-style growth and charge-up turns.
+        int horizon = (int)Math.Max(1, Tuning.Horizon);
+        var perEnemy = new Dictionary<int, double>();
+        foreach (Enemy e in c.Enemies) perEnemy[e.Index] = c.IntentDamage(e);
+        if (horizon > 1)
+        {
+            Combat ahead = c.Clone(salt + 1);
+            for (int k = 1; k < horizon && ahead.Result == CombatResult.Ongoing; k++) ahead.EndPlayerTurn();
+            foreach (Enemy e in ahead.Enemies)
+                if (e.DamageDealt > 0) perEnemy[e.Index] = perEnemy.GetValueOrDefault(e.Index) + e.DamageDealt;
+        }
+        double incoming = perEnemy.Values.Sum() / horizon;
+        double now = incoming;
+        double scale = now > 0 ? Math.Max(0, incoming - Tuning.SpareBlock) / now : 0;
+        // Killing the enemies in the best order (highest damage per HP first) decides how long each keeps hitting: the future cost is each
+        // enemy's damage per turn times the turns until it dies, and the turns are the HP killed up to and including it over our damage per turn.
+        var threats = new List<(double Threat, double Hp)>();
+        double progress = 0;
         foreach (Enemy e in c.Enemies)
         {
             if (!e.Alive || e.Dying) continue;
-            double effective = e.Powers[(int)PowerKind.Vulnerable] > 0 ? e.Hp / 1.5 : e.Hp;
-            remaining += effective * (e.Primary ? 1 : 0.5);
+            int vulnerable = e.Powers[(int)PowerKind.Vulnerable];
+            double effective = vulnerable > 0 ? e.Hp - Math.Min(e.Hp / 3.0, Tuning.Dpt * Math.Min(vulnerable, 2) / 3.0) : e.Hp;   // Vulnerable is worth a third of the damage we deal while it lasts
+            progress += effective;
+            double threat = perEnemy.GetValueOrDefault(e.Index) / horizon * scale + (e.Primary ? 0 : 0.5);
+            // A sleeping or charging enemy still has attacks coming later, so it never counts as harmless.
+            var attacks = e.Def.Moves.Values.Where(m => m.Damage > 0).ToList();
+            if (attacks.Count > 0) threat = Math.Max(threat, Tuning.BaseThreat * attacks.Average(m => (double)m.Damage * m.HitsAt(c.Ascension)) * scale);
+            // Enemies that leave others behind when they die (Infested's four Wrigglers, the Gremlin Merc's gremlins) aren't finished by killing them.
+            if (e.Powers[(int)PowerKind.Infested] > 0) { effective += 80; threat += 12 * scale; }
+            else if (e.Powers[(int)PowerKind.Surprise] > 0 || e.Def.Innate.Any(p => p.Power == PowerKind.Surprise)) { effective += 45; threat += 10 * scale; }
+            threats.Add((threat, Math.Max(1, effective)));
         }
-        return powers - lost - price * remaining;
+        threats.Sort((a, b) => (b.Threat / b.Hp).CompareTo(a.Threat / a.Hp));
+        double cumulative = 0, future = 0;
+        foreach (var (threat, hp) in threats)
+        {
+            cumulative += hp;
+            future += threat * cumulative / Tuning.Dpt;
+        }
+        return powers - lost - future - Tuning.Progress * progress;
     }
 
     /// <summary>Carries out one planned action on a combat (a copy while planning, the real one when playing). False if it can't be done.</summary>

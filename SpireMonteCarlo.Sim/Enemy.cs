@@ -13,6 +13,9 @@ public sealed class Enemy
     public int Hp { get; set; }
     public int MaxHp { get; set; }
     public int Block { get; set; }
+
+    /// <summary>Attack damage this enemy has aimed at the player (before block); copies made for planning start from zero.</summary>
+    public int DamageDealt { get; set; }
     public int[] Powers { get; } = new int[PowerRules.Count];
 
     /// <summary>For monsters whose first move depends on a starter index (assigned per encounter).</summary>

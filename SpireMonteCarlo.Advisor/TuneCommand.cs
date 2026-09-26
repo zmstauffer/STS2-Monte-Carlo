@@ -40,7 +40,7 @@ public static class TuneCommand
         var tuning = BotTuning.Default.Clone();
         if (Option(args, "--tune") is { } spec) tuning.Apply(spec);
         var sw = Stopwatch.StartNew();
-        Suite suite = new(data, n);
+        Suite suite = new(data, n, Option(args, "--room"));
         Report report = suite.Score(tuning);
         Console.WriteLine($"score {report.Score:F2}   normal {report.Normal:F1}  elite {report.Elite:F1}  boss {report.Boss:F1}   ({sw.Elapsed.TotalSeconds:F1}s)");
         foreach (var (name, loss) in report.PerDeck) Console.WriteLine($"  {name}: {loss:F1}");
@@ -53,14 +53,14 @@ public static class TuneCommand
         int rounds = int.Parse(Option(args, "--rounds") ?? "3");
         var best = BotTuning.Default.Clone();
         if (Option(args, "--tune") is { } spec) best.Apply(spec);
-        Suite suite = new(data, n);
+        Suite suite = new(data, n, Option(args, "--room"));
         Report bestReport = suite.Score(best);
         Console.WriteLine($"start: {bestReport.Score:F2} (normal {bestReport.Normal:F1} elite {bestReport.Elite:F1} boss {bestReport.Boss:F1})");
         double[] factors = { 0.6, 1.5 };
         for (int round = 0; round < rounds; round++)
         {
             bool improved = false;
-            foreach (string name in BotTuning.Names.Where(n => n != "Leaf"))
+            foreach (string name in BotTuning.Names.Where(n => n is not ("Leaf" or "Horizon")))
             {
                 foreach (double factor in factors)
                 {
@@ -90,19 +90,21 @@ public static class TuneCommand
     {
         private readonly SimData _data;
         private readonly int _n;
+        private readonly string? _onlyRoom;
         private readonly List<(string Encounter, string Room, int Deck)> _fights = new();
         private readonly List<List<CardDef>> _decks = new();
 
-        public Suite(SimData data, int n)
+        public Suite(SimData data, int n, string? onlyRoom = null)
         {
             _data = data;
             _n = n;
+            _onlyRoom = onlyRoom;
             foreach (var (_, deck) in Decks) _decks.Add(data.ParseDeck(deck));
             for (int d = 0; d < Decks.Length; d++)
             {
-                foreach (string e in Normals) if (data.Encounters.Contains(e)) _fights.Add((e, "normal", d));
-                foreach (string e in Elites) _fights.Add((e, "elite", d));
-                foreach (string e in Bosses) _fights.Add((e, "boss", d));
+                if (onlyRoom is null or "normal") foreach (string e in Normals) if (data.Encounters.Contains(e)) _fights.Add((e, "normal", d));
+                if (onlyRoom is null or "elite") foreach (string e in Elites) _fights.Add((e, "elite", d));
+                if (onlyRoom is null or "boss") foreach (string e in Bosses) _fights.Add((e, "boss", d));
             }
         }
 
@@ -125,10 +127,10 @@ public static class TuneCommand
                 }
                 losses[f] = total / _n;
             });
-            double Mean(string room) => Enumerable.Range(0, _fights.Count).Where(i => _fights[i].Room == room).Average(i => losses[i]);
+            double Mean(string room) => Enumerable.Range(0, _fights.Count).Where(i => _fights[i].Room == room).DefaultIfEmpty(-1).Average(i => i < 0 ? 0 : losses[i]);
             double normal = Mean("normal"), elite = Mean("elite"), boss = Mean("boss");
             var perDeck = Decks.Select((d, i) => (d.Name, Enumerable.Range(0, _fights.Count).Where(k => _fights[k].Deck == i).Average(k => losses[k]))).ToList();
-            return new Report(3 * normal + 2 * elite + boss, normal, elite, boss, perDeck);
+            return new Report(_onlyRoom == "normal" ? normal : _onlyRoom == "elite" ? elite : _onlyRoom == "boss" ? boss : 3 * normal + 2 * elite + boss, normal, elite, boss, perDeck);
         }
     }
 }

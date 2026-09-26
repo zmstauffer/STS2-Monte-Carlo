@@ -86,6 +86,13 @@ public sealed class RewardPool
         return null;
     }
 
+    /// <summary>A random card of the character's own pool with this rarity, avoiding the excluded ones.</summary>
+    public string? RollClass(CardRarity rarity, SimRng rng, ICollection<string>? exclude = null)
+    {
+        var candidates = _byRarity[rarity].Where(id => exclude == null || !exclude.Contains(id)).ToList();
+        return candidates.Count == 0 ? null : candidates[rng.Next(candidates.Count)];
+    }
+
     public bool IsColorless(string cardId) => _colorlessIds.Contains(cardId);
 
     /// <summary>The card's rarity for pricing (Common for anything the pool doesn't list).</summary>

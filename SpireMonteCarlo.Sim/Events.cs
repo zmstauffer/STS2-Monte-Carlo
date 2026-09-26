@@ -100,6 +100,59 @@ public sealed class EventState
 
     public void UpgradeBest() => DeckPolicies.UpgradeBest(Deck, Data, Pool);
 
+    /// <summary>Upgrades the last Strike and the last Defend in the deck (Neow's Talisman).</summary>
+    public void UpgradeBasics()
+    {
+        foreach (string prefix in new[] { "STRIKE_", "DEFEND_" })
+        {
+            int i = Deck.FindLastIndex(c => c.Id.StartsWith(prefix) && !c.Upgraded && c.UpgradedForm != null);
+            if (i >= 0) Deck[i] = Data.Cards.Get(Deck[i].Id, true);
+        }
+    }
+
+    /// <summary>Adds a random card of the character's pool with the given rarity (Arcane Scroll).</summary>
+    public void AddRandomClassCard(CardRarity rarity)
+    {
+        string? id = Pool.RollClass(rarity, Rng);
+        if (id != null) AddCard(id);
+    }
+
+    /// <summary>A normal card reward the player picks from like any other (Lost Coffer, Kaleidoscope).</summary>
+    public void TakeFromOffer()
+    {
+        string[] offer = Pool.GenerateOffer(RewardKind.Normal, new RarityOdds(Ascension, 0f), Rng);
+        int pick = PickPolicy.Choose(offer, Pool, Deck.Count, Rng);
+        if (pick >= 0) AddCard(offer[pick]);
+    }
+
+    /// <summary>Two colorless cards to choose from (Lead Paperweight).</summary>
+    public void TakeColorless(int count)
+    {
+        var offer = new List<string>();
+        for (int i = 0; i < count; i++)
+        {
+            string? id = Pool.RollColorless(Rng.NextDouble() < 0.7 ? CardRarity.Uncommon : CardRarity.Rare, Rng, offer);
+            if (id != null) offer.Add(id);
+        }
+        int pick = PickPolicy.Choose(offer, Pool, Deck.Count, Rng);
+        if (pick >= 0) AddCard(offer[pick]);
+    }
+
+    /// <summary>Two bundles of two commons and an uncommon; the player takes the one the community likes more (Scroll Boxes).</summary>
+    public void TakeBundle()
+    {
+        var used = new List<string>();
+        var bundles = new List<List<string>>();
+        for (int b = 0; b < 2; b++)
+        {
+            var bundle = new List<string>();
+            for (int i = 0; i < 2; i++) if (Pool.RollClass(CardRarity.Common, Rng, used) is { } common) { bundle.Add(common); used.Add(common); }
+            if (Pool.RollClass(CardRarity.Uncommon, Rng, used) is { } uncommon) { bundle.Add(uncommon); used.Add(uncommon); }
+            bundles.Add(bundle);
+        }
+        foreach (string id in bundles.OrderByDescending(b => b.Sum(Pool.Elo)).First()) AddCard(id);
+    }
+
     public void UpgradeRandom(int count)
     {
         var candidates = Enumerable.Range(0, Deck.Count).Where(i => !Deck[i].Upgraded && Deck[i].UpgradedForm != null).ToList();
