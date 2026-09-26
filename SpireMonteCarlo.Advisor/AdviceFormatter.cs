@@ -82,9 +82,9 @@ public static class AdviceFormatter
         sb.AppendLine();
         sb.AppendLine("Why:");
         foreach (string line in Explainer.Explain(report)) sb.AppendLine($"  - {Readable(line)}");
-        OptionReport baseline = report.Options.First(o => o.IsBaseline);
-        if (baseline.Killers.Count > 0)
-            sb.AppendLine($"  - Where runs die with \"{report.BaselineLabel}\": {string.Join(", ", baseline.Killers.Select(k => $"{Readable(k.Encounter)} x{k.Count}"))}");
+        OptionReport top = report.Options[0];
+        if (top.Killers.Count > 0 && top.SurvivalRate < 0.97)
+            sb.AppendLine($"  - Where runs die with {Readable(top.Label)}: {string.Join(", ", top.Killers.Select(k => $"{Readable(k.Encounter)} x{k.Count}"))}");
         foreach (string note in Notes(report)) sb.AppendLine($"Note: {note}");
         return sb.ToString();
     }

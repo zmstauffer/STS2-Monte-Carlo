@@ -15,6 +15,8 @@ public sealed class OptionReport
     /// <summary>Average HP at the end of the act, counting a death as 0.</summary>
     public double MeanHpEnd { get; init; }
     public double MeanHpEndIfSurvived { get; init; }
+    /// <summary>Average rest-of-run value (<see cref="AdviceEngine.ValueOf"/>, without the cards' later worth) over the futures that survive the act.</summary>
+    public double MeanFutureIfSurvived { get; init; }
     public double MeanFightsWon { get; init; }
 
     /// <summary>Share of the deck-test fights the end-of-act deck wins, over the runs that reach the end of the act; NaN when there is no test (Act 3).</summary>
@@ -232,6 +234,7 @@ public static class AdviceEngine
                 SurvivalRate = survivors / (double)rollouts,
                 MeanHpEnd = hp.Average(),
                 MeanHpEndIfSurvived = survivors == 0 ? 0 : rs.Where(r => r.Survived).Average(r => r.HpEnd),
+                MeanFutureIfSurvived = survivors == 0 ? 0 : rs.Where(r => r.Survived).Average(r => ValueOf(r, act)),
                 MeanFightsWon = rs.Average(r => r.FightsWon),
                 ProbeWinRate = rs.Where(r => r.Survived && r.ProbeFights > 0).Select(r => (double)r.ProbeWins / r.ProbeFights).DefaultIfEmpty(double.NaN).Average(),
                 ProbeHpLost = rs.Where(r => r.Survived && r.ProbeFights > 0).Select(r => (double)r.ProbeHpLost / r.ProbeFights).DefaultIfEmpty(double.NaN).Average(),

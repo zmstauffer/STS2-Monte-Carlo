@@ -1,94 +1,83 @@
 namespace SpireMonteCarlo.Sim;
 
 /// <summary>
-/// Puts what the simulations found into plain language: where the recommended option wins (or loses) against the baseline,
-/// in terms a player recognises: how often the act is survived, which kind of fight is deadlier, how much HP fights cost,
-/// and how the end-of-act deck does in its test fights against the next act.
+/// Explains the recommendation in plain language by what the table can't show: where the gap between the best option and the
+/// runner-up comes from (surviving this act, the deck and HP carried into the rest of the run, the cards' worth later), and what
+/// drives the biggest part (which kind of fight the deaths move in, how much stronger the end-of-act deck tests).
 /// </summary>
 public static class Explainer
 {
-    private const double RateStep = 0.02, HpStep = 2.0;
-
     public static IReadOnlyList<string> Explain(AdviceReport report)
     {
         var lines = new List<string>();
-        if (report.OnlyOption) return lines;
-        OptionReport baseline = report.Options.First(o => o.IsBaseline);
-        OptionReport best = report.Options[0];
+        if (report.OnlyOption || report.Options.Count < 2) return lines;
+        OptionReport best = report.Options[0], next = report.Options[1];
+        var ties = report.Options.Skip(1).Where(o => o.AboutEqualToBest).ToList();
 
-        if (best.IsBaseline)
+        var parts = Split(best, next);
+        string split = string.Join(", ", parts.Where(p => Math.Abs(p.Points) >= 0.3).Select(p => $"{p.Points:+0.0;-0.0} {p.What}"));
+        double gap = -next.PointsVsBest;
+        if (ties.Count > 0)
+            lines.Add($"{best.Label} and {string.Join(" / ", ties.Select(t => t.Label))} are too close to call ({gap:F1} points apart{(split.Length > 0 ? $": {split}" : "")}).");
+        else
+            lines.Add($"{best.Label} beats {next.Label} by {gap:F1} points{(split.Length > 0 ? $": {split}" : "")}.");
+
+        // What drives the biggest part, from numbers the table doesn't show.
+        var main = parts.OrderByDescending(p => Math.Abs(p.Points)).First();
+        if (Math.Abs(main.Points) >= 0.3)
         {
-            lines.Add($"None of the other options beat \"{baseline.Label}\": {Pct(baseline.SurvivalRate)} of futures survive the act with it.");
-            OptionReport? runnerUp = report.Options.Skip(1).FirstOrDefault();
-            if (runnerUp != null)
-                lines.Add($"The closest is {runnerUp.Label}: {Difference(runnerUp, baseline)}.");
-            return lines;
+            string? driver = main.Kind switch
+            {
+                Part.ThisAct => DeathDriver(best, next),
+                Part.RestOfRun => DeckDriver(best, next),
+                _ => null,
+            };
+            if (driver != null) lines.Add(driver);
         }
-
-        string difference = Difference(best, baseline);
-        lines.Add(best.ClearlyDifferentFromSkip
-            ? $"{best.Label} beats \"{baseline.Label}\": {difference}."
-            : $"{best.Label} looks best, but the difference from \"{baseline.Label}\" is within the noise of this many simulations ({difference}).");
-
-        // Trade-offs: an option can be worse on one measure and better on another.
-        var costs = Costs(best, baseline).ToList();
-        if (costs.Count > 0) lines.Add($"The trade-off: it {string.Join(" and ", costs)}.");
-
-        // Options that are clearly worse than the baseline are the traps worth naming.
-        foreach (OptionReport o in report.Options.Skip(1).Where(o => o.DeltaValue < 0 && o.ClearlyDifferentFromSkip).OrderBy(o => o.DeltaValue).Take(2))
-            lines.Add($"Avoid {o.Label}: compared with \"{baseline.Label}\", {Difference(o, baseline)}.");
         return lines;
     }
 
-    /// <summary>Everything that differs noticeably between an option and the baseline, best news first.</summary>
-    private static string Difference(OptionReport o, OptionReport baseline)
+    private enum Part { ThisAct, RestOfRun, Later }
+
+    /// <summary>
+    /// The points gap split three ways. An option's value is (chance to survive the act) x (average rest-of-run value when it does, plus
+    /// the cards' later worth), so the gap is: the survival difference at the runner-up's rest-of-run value, the rest-of-run difference
+    /// at the best option's survival, and the later-worth difference at the best option's survival.
+    /// </summary>
+    private static List<(Part Kind, double Points, string What)> Split(OptionReport best, OptionReport next)
     {
-        var parts = new List<string>();
-        double survival = o.SurvivalRate - baseline.SurvivalRate;
-        if (Math.Abs(survival) >= RateStep)
-            parts.Add($"the act is survived {Pct(o.SurvivalRate)} of the time versus {Pct(baseline.SurvivalRate)}");
-
-        AddDeaths(parts, "boss", o.BossDeathRate, baseline.BossDeathRate);
-        AddDeaths(parts, "elite", o.EliteDeathRate, baseline.EliteDeathRate);
-        AddDeaths(parts, "normal", o.NormalDeathRate, baseline.NormalDeathRate);
-        AddHp(parts, "elite fights", o.EliteHpLost, baseline.EliteHpLost);
-        AddHp(parts, "boss fights", o.BossHpLost, baseline.BossHpLost);
-
-        double hpEnd = o.MeanHpEndIfSurvived - baseline.MeanHpEndIfSurvived;
-        if (Math.Abs(hpEnd) >= 3 && o.SurvivalRate > 0 && baseline.SurvivalRate > 0)
-            parts.Add($"the act ends with about {Math.Abs(hpEnd):F0} {(hpEnd > 0 ? "more" : "less")} HP when it is survived");
-
-        if (!double.IsNaN(o.ProbeHpLost) && !double.IsNaN(baseline.ProbeHpLost) && Math.Abs(o.ProbeHpLost - baseline.ProbeHpLost) >= 1)
-            parts.Add($"the end-of-act deck loses about {Math.Abs(o.ProbeHpLost - baseline.ProbeHpLost):F0} HP {(o.ProbeHpLost < baseline.ProbeHpLost ? "less" : "more")} per next-act test fight ({o.ProbeHpLost:F0} versus {baseline.ProbeHpLost:F0})");
-
-        return parts.Count == 0 ? "the differences are small" : string.Join("; ", parts);
+        double thisAct = 100 * (best.SurvivalRate - next.SurvivalRate) * (next.MeanFutureIfSurvived + next.LongTermPoints / 100);
+        double restOfRun = 100 * best.SurvivalRate * (best.MeanFutureIfSurvived - next.MeanFutureIfSurvived);
+        double later = best.SurvivalRate * (best.LongTermPoints - next.LongTermPoints);
+        return new()
+        {
+            (Part.ThisAct, thisAct, $"from surviving this act ({Pct(best.SurvivalRate)} vs {Pct(next.SurvivalRate)})"),
+            (Part.RestOfRun, restOfRun, "from the deck and HP it leaves for the rest of the run"),
+            (Part.Later, later, "from the cards' worth later in the run (real players' ratings)"),
+        };
     }
 
-    /// <summary>The ways the option is worse than the baseline, for the trade-off sentence (only when it is better overall).</summary>
-    private static IEnumerable<string> Costs(OptionReport o, OptionReport baseline)
+    /// <summary>Which kind of fight the deaths move in, and by how much.</summary>
+    private static string? DeathDriver(OptionReport best, OptionReport next)
     {
-        if (baseline.SurvivalRate - o.SurvivalRate >= RateStep)
-            yield return $"survives the act slightly less often ({Pct(o.SurvivalRate)} versus {Pct(baseline.SurvivalRate)})";
-        if (o.BossDeathRate - baseline.BossDeathRate >= RateStep) yield return $"loses more often to bosses ({Pct(o.BossDeathRate)} versus {Pct(baseline.BossDeathRate)})";
-        if (o.EliteDeathRate - baseline.EliteDeathRate >= RateStep) yield return $"loses more often to elites ({Pct(o.EliteDeathRate)} versus {Pct(baseline.EliteDeathRate)})";
-        if (o.EliteHpLost - baseline.EliteHpLost >= HpStep) yield return $"costs about {o.EliteHpLost - baseline.EliteHpLost:F0} more HP in each elite fight";
-        if (!double.IsNaN(o.ProbeHpLost) && o.ProbeHpLost - baseline.ProbeHpLost >= 1)
-            yield return $"leaves a weaker deck for the next act (it loses {o.ProbeHpLost:F0} HP per test fight versus {baseline.ProbeHpLost:F0})";
+        var rooms = new[] { ("boss fights", best.BossDeathRate, next.BossDeathRate, best.BossHpLost, next.BossHpLost),
+                            ("elites", best.EliteDeathRate, next.EliteDeathRate, best.EliteHpLost, next.EliteHpLost),
+                            ("normal fights", best.NormalDeathRate, next.NormalDeathRate, best.NormalHpLost, next.NormalHpLost) };
+        var (room, b, n, bHp, nHp) = rooms.OrderByDescending(r => Math.Abs(r.Item2 - r.Item3)).First();
+        if (Math.Abs(b - n) < 0.01) return null;
+        string hp = Math.Abs(bHp - nHp) >= 1 ? $", and those fights cost about {Math.Abs(bHp - nHp):F0} HP {(bHp < nHp ? "less" : "more")} each" : "";
+        return $"Mostly {(b < n ? "fewer" : "more")} deaths to {room} ({Pct(b)} vs {Pct(n)} of futures){hp}.";
     }
 
-    private static void AddDeaths(List<string> parts, string kind, double option, double baseline)
+    /// <summary>How the end-of-act deck and HP compare.</summary>
+    private static string? DeckDriver(OptionReport best, OptionReport next)
     {
-        if (Math.Abs(option - baseline) < RateStep) return;
-        parts.Add(option < baseline
-            ? $"deaths to {kind} fights fall from {Pct(baseline)} to {Pct(option)}"
-            : $"deaths to {kind} fights rise from {Pct(baseline)} to {Pct(option)}");
-    }
-
-    private static void AddHp(List<string> parts, string what, double option, double baseline)
-    {
-        double d = option - baseline;
-        if (Math.Abs(d) < HpStep) return;
-        parts.Add($"{what} cost about {Math.Abs(d):F0} HP {(d < 0 ? "less" : "more")} on average ({option:F0} versus {baseline:F0})");
+        var bits = new List<string>();
+        if (!double.IsNaN(best.ProbeHpLost) && !double.IsNaN(next.ProbeHpLost) && Math.Abs(best.ProbeHpLost - next.ProbeHpLost) >= 0.5)
+            bits.Add($"its end-of-act deck loses {Math.Abs(best.ProbeHpLost - next.ProbeHpLost):F1} HP {(best.ProbeHpLost < next.ProbeHpLost ? "less" : "more")} per test fight against Act 2 elites and a boss");
+        double hp = best.MeanHpEndIfSurvived - next.MeanHpEndIfSurvived;
+        if (Math.Abs(hp) >= 2) bits.Add($"it ends the act with about {Math.Abs(hp):F0} {(hp > 0 ? "more" : "less")} HP");
+        return bits.Count == 0 ? null : $"Mostly because {string.Join(", and ", bits)}.";
     }
 
     private static string Pct(double rate) => $"{100 * rate:F0}%";

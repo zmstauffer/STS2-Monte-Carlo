@@ -5,58 +5,45 @@ namespace SpireMonteCarlo.Tests;
 
 public class ExplainerTests
 {
-    private static OptionReport Option(string label, bool baseline, double survive, double probe, double boss = 0, double elite = 0, double eliteHp = 20, double bossHp = 40,
-        double deltaValue = 0, double se = 0.01) => new()
+    private static OptionReport Option(string label, double survive, double future, double deltaVsBest = 0, double se = 0.002, double probe = 30, double boss = 0.05,
+        double elite = 0.05, double later = 0, double hpEnd = 40) => new()
     {
-        Label = label, IsBaseline = baseline, SurvivalRate = survive, ProbeHpLost = probe, BossDeathRate = boss, EliteDeathRate = elite,
-        EliteHpLost = eliteHp, BossHpLost = bossHp, MeanHpEndIfSurvived = 30, DeltaValue = deltaValue, DeltaValueSe = se,
+        Label = label, SurvivalRate = survive, MeanFutureIfSurvived = future, DeltaVsBest = deltaVsBest, DeltaVsBestSe = se, ProbeHpLost = probe,
+        BossDeathRate = boss, EliteDeathRate = elite, LongTermPoints = later, MeanHpEndIfSurvived = hpEnd, EliteHpLost = 20, BossHpLost = 40,
     };
 
-    private static AdviceReport Report(params OptionReport[] options) => new()
-    {
-        Decision = "test", BaselineLabel = options.First(o => o.IsBaseline).Label, Options = options,
-    };
+    private static AdviceReport Report(params OptionReport[] options) => new() { Decision = "test", BaselineLabel = "Skip", Options = options };
 
     [Fact]
-    public void ATradeOffIsNamedWhenTheBestOptionIsWorseOnSomethingItCares()
+    public void TheGapToTheRunnerUpIsSplitIntoThisActTheRestOfTheRunAndLater()
     {
-        var report = Report(
-            Option("SCALING_CARD", false, survive: 0.66, probe: 18, boss: 0.20, deltaValue: 0.15),
-            Option("Skip", true, survive: 0.70, probe: 26, boss: 0.15));
+        var report = Report(Option("ANGER", 0.97, 0.40, later: -2), Option("Skip", 0.94, 0.38, deltaVsBest: -0.02, boss: 0.08));
         var lines = Explainer.Explain(report);
-        Assert.Contains(lines, l => l.Contains("beats \"Skip\"") && l.Contains("8 HP less per next-act test fight (18 versus 26)"));
-        Assert.Contains(lines, l => l.StartsWith("The trade-off") && l.Contains("survives the act slightly less often"));
+        Assert.StartsWith("ANGER beats Skip by 2.0 points:", lines[0]);
+        Assert.Contains("from surviving this act (97% vs 94%)", lines[0]);
+        Assert.Contains("from the deck and HP it leaves for the rest of the run", lines[0]);
+        Assert.Contains("later in the run", lines[0]);
     }
 
     [Fact]
-    public void WhenTheBaselineWinsTheExplanationSaysSo()
+    public void TheMainDriverNamesTheKindOfFightTheDeathsMoveIn()
     {
-        var report = Report(
-            Option("Skip", true, survive: 0.70, probe: 0.9),
-            Option("BAD_CARD", false, survive: 0.60, probe: 0.85, deltaValue: -0.2));
-        var lines = Explainer.Explain(report);
-        Assert.Contains(lines, l => l.StartsWith("None of the other options beat \"Skip\""));
-        Assert.Contains(lines, l => l.Contains("BAD_CARD"));
+        var report = Report(Option("DEFENSIVE", 0.90, 0.40, boss: 0.03), Option("Skip", 0.80, 0.40, deltaVsBest: -0.04, boss: 0.13));
+        Assert.Contains(Explainer.Explain(report), l => l.StartsWith("Mostly fewer deaths to boss fights (3% vs 13% of futures)"));
     }
 
     [Fact]
-    public void ABestOptionWithinTheNoiseIsNotOversold()
+    public void ADeckDrivenGapTalksAboutTheDeckTest()
     {
-        var report = Report(
-            Option("MAYBE", false, survive: 0.71, probe: 0.9, deltaValue: 0.01, se: 0.02),
-            Option("Skip", true, survive: 0.70, probe: 0.9));
-        Assert.Contains(Explainer.Explain(report), l => l.Contains("within the noise"));
+        var report = Report(Option("SCALING", 0.99, 0.45, probe: 25), Option("Skip", 0.99, 0.40, deltaVsBest: -0.05, probe: 29));
+        Assert.Contains(Explainer.Explain(report), l => l.Contains("loses 4.0 HP less per test fight"));
     }
 
     [Fact]
-    public void DeathRatesAndHpCostsAreDescribedInPlainWords()
+    public void TiesAreCalledTooCloseToCall()
     {
-        var report = Report(
-            Option("DEFENSIVE", false, survive: 0.85, probe: 0.95, boss: 0.05, elite: 0.04, eliteHp: 12, deltaValue: 0.3),
-            Option("Skip", true, survive: 0.70, probe: 0.92, boss: 0.20, elite: 0.10, eliteHp: 20));
-        string text = string.Join(" ", Explainer.Explain(report));
-        Assert.Contains("deaths to boss fights fall from 20% to 5%", text);
-        Assert.Contains("elite fights cost about 8 HP less", text);
+        var report = Report(Option("A", 0.95, 0.40), Option("B", 0.95, 0.40, deltaVsBest: -0.001));
+        Assert.StartsWith("A and B are too close to call", Explainer.Explain(report)[0]);
     }
 
     [Fact]
