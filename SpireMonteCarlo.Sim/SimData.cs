@@ -22,14 +22,15 @@ public sealed class SimData
     public SimData(CodexCache cache)
     {
         _codexCards = cache.LoadCards();
-        Cards = new CardLibrary(_codexCards);
-        Monsters = new MonsterLibrary(cache.LoadMonsters(), cache.LoadMonsterAi());
+        Cards = new CardLibrary(_codexCards, cache.LoadCardDefs());
+        Monsters = new MonsterLibrary(cache.LoadMonsters(), cache.LoadMonsterAi(), cache.LoadMonsterClasses());
         Encounters = new EncounterLibrary(cache.LoadEncounters(), cache.LoadEncounterLineups());
         Characters = cache.LoadCharacters();
         _cardMetrics = cache.LoadMetrics("cards", EloBracket);
         Services = new CombatServices(
-            id => _codexCards.ContainsKey(id) ? Cards.Get(id, false) : null,
-            id => Monsters.Contains(id) ? Monsters.Get(id) : null);
+            id => Cards.Contains(id) ? Cards.Get(id, false) : null,
+            id => Monsters.Contains(id) ? Monsters.Get(id) : null,
+            Cards.CombatGenerationPool);
     }
 
     /// <summary>The cards a character can be offered as rewards, with their Elo.</summary>

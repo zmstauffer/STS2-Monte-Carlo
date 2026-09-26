@@ -26,7 +26,7 @@ public class CombatRulesTests
     private static Combat NewCombat(CardDef[] deck, MonsterDef monster, int hp = 80, ulong seed = 1) =>
         new(deck, hp, 80, new[] { monster }, ascension: 0, seed);
 
-    private static int IndexInHand(Combat c, CardDef card) => c.Hand.FindIndex(x => ReferenceEquals(x, card));
+    private static int IndexInHand(Combat c, CardDef card) => c.Hand.FindIndex(x => x.Id == card.Id);
 
     [Fact]
     public void FirstTurnDrawsFiveAndGivesThreeEnergy()
@@ -165,7 +165,7 @@ public class CombatRulesTests
         CardDef[] deck = Enumerable.Repeat(Strike, 5).Concat(Enumerable.Repeat(Defend, 4)).Append(Bash).ToArray();
         FightResult a = FightSimulator.Run(deck, 80, 80, new[] { Dummy(60, 9) }, 0, seed: 42);
         FightResult b = FightSimulator.Run(deck, 80, 80, new[] { Dummy(60, 9) }, 0, seed: 42);
-        Assert.Equal(a, b);
+        Assert.Equal(a with { PotionsLeft = null }, b with { PotionsLeft = null });
     }
 
     [Fact]

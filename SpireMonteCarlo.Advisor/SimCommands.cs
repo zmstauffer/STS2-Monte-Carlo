@@ -17,6 +17,7 @@ public static class SimCommands
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
             case "calibrate-run": return CalibrateRun(args.Skip(1).ToArray());
             case "rewards": return Rewards(args.Skip(1).ToArray());
+            case "audit": return AuditCommand.Run(args.Skip(1).ToArray());
             case "encounters": return ListEncounters(args.Skip(1).ToArray());
             default:
                 Console.Error.WriteLine("Usage: advisor sim <extract [--decompiled <dir>] | encounters [act] | fight --encounter <ID> [--n N] [--ascension A] [--hp N] [--deck SPEC] [--seed S]>");
@@ -74,6 +75,20 @@ public static class SimCommands
             var dangling = machine.States.Where(s => s.Kind == "move" && s.Next == null).Select(s => s.Id).ToList();
             if (dangling.Count > 0 && machine.States.Count > 1)
                 Console.WriteLine($"  {id}: no follow-up for {string.Join(", ", dangling)}");
+        }
+        Dictionary<string, ExtractedMonster> monsterClasses = MonsterClassExtractor.ExtractAll(monstersDir);
+        cache.SaveMonsterClasses(monsterClasses);
+        Console.WriteLine($"Monster classes: {monsterClasses.Count} read (hit points, damage, block, powers, cards and monsters added).");
+
+        string cardsDir = Path.Combine(root, "MegaCrit.Sts2.Core.Models.Cards");
+        if (Directory.Exists(cardsDir))
+        {
+            Dictionary<string, ExtractedCard> cards = CardSourceExtractor.ExtractAll(cardsDir);
+            cache.SaveCardDefs(cards);
+            var codexCards = cache.LoadCards();
+            Console.WriteLine($"Cards: {cards.Count} extracted from the game ({codexCards.Count} in Codex; {cards.Keys.Count(id => !codexCards.ContainsKey(id))} newer than Codex).");
+            foreach (ExtractedCard c in cards.Values.Where(c => c.UnparsedUpgrade.Count > 0).OrderBy(c => c.Id))
+                Console.WriteLine($"  {c.Id}: upgrade statements not understood: {string.Join(" | ", c.UnparsedUpgrade)}");
         }
         Console.WriteLine($"Saved to {Path.Combine(cache.Root, "game")}");
         return 0;
@@ -285,13 +300,16 @@ public static class SimCommands
         string deckSpec = Option(args, "--deck") ?? string.Join(",", ironclad.StartingDeck.Select(DecompiledExtractor.ToSnakeCase));
         List<CardDef> deck = data.ParseDeck(deckSpec);
         EncounterDef encounter = data.Encounters.Get(encounterId);
+        var potions = (Option(args, "--potions") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => PotionLibrary.Find(id) ?? throw new ArgumentException($"Unknown or unmodelled potion {id}")).ToList();
+        int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
 
         if (args.Contains("--trace"))
         {
             ulong traceSeed = SimRng.Mix(seed, 0);
             string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
             Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
-            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services);
+            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes);
             return 0;
         }
 
@@ -303,7 +321,7 @@ public static class SimCommands
             ulong fightSeed = SimRng.Mix(seed, (ulong)i);
             string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
             monsterIds[i] = lineup;
-            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services);
+            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes);
         });
         sw.Stop();
 

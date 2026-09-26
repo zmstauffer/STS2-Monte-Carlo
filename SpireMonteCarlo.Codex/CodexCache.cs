@@ -177,6 +177,34 @@ public sealed class CodexCache
         File.WriteAllText(Path.Combine(dir, "monster_ai.json"), JsonSerializer.Serialize(machines, Json));
     }
 
+    /// <summary>Card definitions extracted from the decompiled game (see <see cref="CardSourceExtractor"/>), or null if not extracted yet.</summary>
+    public Dictionary<string, ExtractedCard>? LoadCardDefs()
+    {
+        string path = Path.Combine(Root, "game", "card_defs.json");
+        return File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, ExtractedCard>>(File.ReadAllText(path), Json) : null;
+    }
+
+    public void SaveCardDefs(Dictionary<string, ExtractedCard> cards)
+    {
+        string dir = Path.Combine(Root, "game");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "card_defs.json"), JsonSerializer.Serialize(cards, Json));
+    }
+
+    /// <summary>Monster numbers and move effects extracted from the decompiled game (see <see cref="MonsterClassExtractor"/>), or null if not extracted yet.</summary>
+    public Dictionary<string, ExtractedMonster>? LoadMonsterClasses()
+    {
+        string path = Path.Combine(Root, "game", "monster_classes.json");
+        return File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, ExtractedMonster>>(File.ReadAllText(path), Json) : null;
+    }
+
+    public void SaveMonsterClasses(Dictionary<string, ExtractedMonster> monsters)
+    {
+        string dir = Path.Combine(Root, "game");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "monster_classes.json"), JsonSerializer.Serialize(monsters, Json));
+    }
+
     public IReadOnlyDictionary<string, CodexEncounterStat> LoadEncounterStats() =>
         // Some encounters (event fights) are listed once per act; keep the biggest sample.
         Read<CodexEncounterStats>("encounter_stats.json").Encounters

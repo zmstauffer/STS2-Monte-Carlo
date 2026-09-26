@@ -44,6 +44,36 @@ public sealed class Enemy
     /// <summary>The slot the game placed this monster in (e.g. "wriggler2"); a few monsters choose their first move by it.</summary>
     public string? SlotName { get; set; }
 
+    /// <summary>Left the fight alive (Fat Gremlin fleeing): not killed, so no on-death effects.</summary>
+    public bool Escaped { get; set; }
+
+    /// <summary>Dead for now but will heal to full on its next turn (Illusion).</summary>
+    public bool Reviving { get; set; }
+
+    /// <summary>Gold this monster carries that the player gets back if it is killed (Heist).</summary>
+    public int HeistGold { get; set; }
+
+    /// <summary>Counters and flags a monster's own behavior keeps (turns until it can summon, times it has called for backup, ...).</summary>
+    public Dictionary<string, int> State { get; } = new();
+
+    /// <summary>An independent copy with the same stats, powers, and position in the move state machine.</summary>
+    public Enemy Copy()
+    {
+        var e = new Enemy
+        {
+            Def = Def, Index = Index, Hp = Hp, MaxHp = MaxHp, Block = Block, StarterIndex = StarterIndex, AltStart = AltStart,
+            RitualSkip = RitualSkip, SlowCards = SlowCards, SkittishUsed = SkittishUsed, ShellDamage = ShellDamage, Dying = Dying,
+            ExplodeDamage = ExplodeDamage, GunBonus = GunBonus, SlotName = SlotName, Escaped = Escaped, Reviving = Reviving,
+            HeistGold = HeistGold, Move = Move, Stunned = Stunned, LastMoveId = LastMoveId,
+        };
+        Array.Copy(Powers, e.Powers, Powers.Length);
+        foreach (var kv in State) e.State[kv.Key] = kv.Value;
+        e._stateId = _stateId;
+        e._currentMoveState = _currentMoveState;
+        e._usedOnce = _usedOnce == null ? null : new HashSet<string>(_usedOnce);
+        return e;
+    }
+
     public bool Alive => Hp > 0;
 
     /// <summary>Minions don't count towards ending the fight.</summary>
@@ -79,6 +109,9 @@ public sealed class Enemy
     /// <summary>
     /// The enemy loses its next move (a stun). After it, the state machine continues from <paramref name="nextStateId"/>.
     /// </summary>
+    /// <summary>Skips the next move; afterwards the monster does the move it had planned.</summary>
+    public void Stun() => Stun(_currentMoveState?.Id ?? _stateId);
+
     public void Stun(string nextStateId)
     {
         Move = null;
@@ -136,12 +169,15 @@ public sealed class Enemy
         if (allowed.Count == 0) allowed = options;
         if (allowed.Count == 0) return "";
 
-        double total = allowed.Sum(b => b.Weight);
+        MonsterBehavior? behavior = MonsterBehaviors.For(Def.Id);
+        double WeightOf(BranchDef b) => behavior?.BranchWeight(combat, this, b) ?? b.Weight;
+        double total = allowed.Sum(WeightOf);
+        if (total <= 0) { allowed = options; total = allowed.Sum(WeightOf); }
         double roll = combat.Rng.NextDouble() * total;
         BranchDef chosen = allowed[^1];
         foreach (BranchDef b in allowed)
         {
-            roll -= b.Weight;
+            roll -= WeightOf(b);
             if (roll < 0) { chosen = b; break; }
         }
         if (chosen.Repeat == RepeatRule.UseOnlyOnce) (_usedOnce ??= new()).Add(chosen.StateId);
@@ -154,6 +190,10 @@ public sealed class Enemy
             if (Evaluate(branch.Condition, combat) == true) return branch.StateId;
         return state.Branches.Length > 0 ? state.Branches[0].StateId : "";
     }
+
+    /// <summary>Whether <see cref="Evaluate"/> understands the condition text.</summary>
+    public static bool IsKnownCondition(string monsterId, string condition) =>
+        MonsterBehaviors.Handles(monsterId, "condition: " + condition) || HasPowerCondition.IsMatch(condition) || SlotCondition.IsMatch(condition) || condition.Contains("IsAlone") || condition.Contains("IsFront");
 
     /// <summary>Understands the conditions seen so far: IsAlone, IsFront, and HasPower&lt;X&gt;; anything else is unknown.</summary>
     private bool? Evaluate(string? condition, Combat combat)
@@ -169,7 +209,7 @@ public sealed class Enemy
         else if (SlotCondition.Match(condition) is { Success: true } slot) value = SlotName == slot.Groups["slot"].Value;
         else if (condition.Contains("IsAlone")) value = combat.AliveEnemies == 1;
         else if (condition.Contains("IsFront")) value = combat.Enemies.First(e => e.Alive) == this;
-        if (value == null) return null;
+        if (value == null) return MonsterBehaviors.For(Def.Id)?.EvaluateCondition(combat, this, condition);
         return condition.TrimStart().StartsWith('!') ? !value : value;
     }
 }

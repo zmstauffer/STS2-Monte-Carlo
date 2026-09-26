@@ -25,13 +25,13 @@ public class MonsterMechanicsTests
         Moves = { [move.Id] = move },
         States = { [move.Id + "_MOVE"] = new StateDef { Id = move.Id + "_MOVE", Kind = StateKind.Move, MoveId = move.Id, Next = move.Id + "_MOVE" } },
         InitialState = move.Id + "_MOVE",
-        Innate = innate,
+        Innate = innate.Select(t => new InnatePower(t.Item1, t.Item2)).ToArray(),
     };
 
     private static Combat Fight(CardDef[] deck, MonsterDef[] monsters, int hp = 100, CombatServices? services = null) =>
         new(deck, hp, hp, monsters, ascension: 0, seed: 1, services: services);
 
-    private static void PlayFirst(Combat c, CardDef card, int target = 0) => c.Play(c.Hand.FindIndex(x => ReferenceEquals(x, card)), target);
+    private static void PlayFirst(Combat c, CardDef card, int target = 0) => c.Play(c.Hand.FindIndex(x => x.Id == card.Id), target);
 
     [Fact]
     public void SlowRaisesDamageTenPercentPerCardPlayedThisTurnAndResets()
@@ -75,7 +75,7 @@ public class MonsterMechanicsTests
             },
         },
         InitialState = "SLEEP_MOVE",
-        Innate = new[] { (PowerKind.Asleep, 3), (PowerKind.Plating, 12) },
+        Innate = new[] { new InnatePower(PowerKind.Asleep, 3), new InnatePower(PowerKind.Plating, 12) },
     };
 
     [Fact]
@@ -255,7 +255,7 @@ public class MonsterMechanicsTests
                 ["EXPLODE_MOVE"] = new StateDef { Id = "EXPLODE_MOVE", Kind = StateKind.Move, MoveId = "EXPLODE", Next = "EXPLODE_MOVE" },
             },
             InitialState = "WAIT_MOVE",
-            Innate = new[] { (PowerKind.SteamEruption, 25) },
+            Innate = new[] { new InnatePower(PowerKind.SteamEruption, 25) },
         };
         CardDef strike = Attack(20, cost: 0);
         var c = Fight(Enumerable.Repeat(strike, 5).ToArray(), new[] { giant });
@@ -290,7 +290,7 @@ public class MonsterMechanicsTests
         CardDef infection = new() { Id = "INFECTION", Kind = CardKind.Status, Cost = CardDef.Unplayable, EndTurnDamage = 3 };
         CardDef beckon = new() { Id = "BECKON", Kind = CardKind.Status, Cost = 1, EndTurnHpLoss = 6 };
         var c = Fight(new[] { infection, beckon, Idle, Idle, Idle }, new[] { Monster(500, Move("WAIT")) });
-        Assert.Contains(infection, c.Hand);
+        Assert.Contains(c.Hand, x => x.Id == "INFECTION");
         c.EndPlayerTurn();
         Assert.Equal(100 - 3 - 6, c.Hp);
     }

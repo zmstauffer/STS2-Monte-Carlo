@@ -16,6 +16,8 @@ public sealed class ActRollout
 {
     private const int BurningBloodHeal = 6;
     private const float MonsterBase = 0.1f, TreasureBase = 0.02f, ShopBase = 0.03f;
+    private const float PotionBaseOdds = 0.4f;
+    private const int PotionSlots = 3;
 
     private readonly SimData _data;
     private readonly RunSnapshot _snap;
@@ -30,7 +32,10 @@ public sealed class ActRollout
     /// </summary>
     public double PlayerHpScale { get; init; } = CalibratedPlayerHpScale;
 
-    public const double CalibratedPlayerHpScale = 2.0;
+    // Re-fit after the card recipes, whole-turn planning, and potions went in: 3.0 gives ~54% Act 1 survival, 3.25 ~64%
+    // (real ~65%), 3.5 more but elites become nearly harmless. Bosses stay over-lethal at every value (Lagavulin Matriarch,
+    // The Kin). Still unmodelled: elite relics, the Ancient boon, shops, and events; they are likely why this is still ~3x.
+    public const double CalibratedPlayerHpScale = 3.25;
     private readonly RewardPool _pool;
     private readonly int _ascension;
     private readonly bool _burningBlood;
@@ -86,6 +91,26 @@ public sealed class ActRollout
         MapCoordinate at = _snap.Map.Current ?? StartPoint();
         string? diedTo = null;
 
+        var potions = _snap.Potions.Select(p => PotionLibrary.Find(p.Id)).OfType<PotionDef>().ToList();
+        float potionOdds = PotionBaseOdds;
+
+        // Potion drops follow PotionRewardOdds: the chance falls 10% after a drop and rises 10% after none.
+        void RollPotionDrop(SimRng rng, bool elite)
+        {
+            bool drop = rng.NextDouble() < potionOdds + (elite ? 0.125f : 0f);
+            potionOdds += drop ? -0.1f : 0.1f;
+            if (!drop) return;
+            PotionDef? found = PotionLibrary.Roll(rng);
+            if (found == null) return;
+            if (found.Id == "FRUIT_JUICE")
+            {
+                // Drunk on the spot: max HP goes up for good.
+                int gain = (int)Math.Round(5 * PlayerHpScale);
+                maxHp += gain; hp += gain;
+            }
+            else if (potions.Count < PotionSlots) potions.Add(found);
+        }
+
         bool Fight(string encounterId, RewardKind? reward)
         {
             fights++;
@@ -97,12 +122,15 @@ public sealed class ActRollout
             if (lineup.Any(m => !_data.Monsters.Contains(m))) { unmodelled++; return true; }
 
             int hpBefore = hp;
-            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services);
+            int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
+            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes);
             log.Add(new FightLogEntry(encounterId, Real(hpBefore), result.Won ? Real(result.HpAfter) : 0, deck.Count));
             if (!result.Won) { diedTo = encounterId; hp = 0; return false; }
 
             won++;
+            potions = result.PotionsLeft?.ToList() ?? potions;
             hp = Math.Min(maxHp, result.HpAfter + (_burningBlood ? (int)Math.Round(BurningBloodHeal * PlayerHpScale) : 0));
+            if (reward is RewardKind dropKind) RollPotionDrop(new SimRng(SimRng.Mix(fightSeed, 0x9071)), dropKind == RewardKind.Elite);
             if (reward is RewardKind kind)
             {
                 var rewardRng = new SimRng(SimRng.Mix(fightSeed, 0xCA2D));

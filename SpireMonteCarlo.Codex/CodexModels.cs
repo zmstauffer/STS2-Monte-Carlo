@@ -15,6 +15,7 @@ public sealed class CodexCard
     /// <summary>Owning character or pool: ironclad, silent, defect, regent, necrobinder, colorless, curse, status, event, token, quest.</summary>
     public string Color { get; set; } = "";
     public List<string>? Keywords { get; set; }
+    public List<string>? Tags { get; set; }
 
     /// <summary>Self, AnyEnemy, AllEnemies, RandomEnemy, AnyAlly, ...</summary>
     public string? Target { get; set; }

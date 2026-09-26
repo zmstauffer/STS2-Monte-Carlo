@@ -21,7 +21,16 @@ public sealed class CardLibrary
     private readonly Dictionary<(string, bool), CardDef> _cache = new();
     private readonly HashSet<string> _unknown = new();
 
-    public CardLibrary(IReadOnlyDictionary<string, CodexCard> codexCards) => _codex = codexCards;
+    private readonly IReadOnlyDictionary<string, ExtractedCard> _game;
+    private readonly Dictionary<string, IReadOnlyList<CardDef>> _pools = new();
+
+    /// <param name="codexCards">Codex's card data (text, colors, fallback numbers).</param>
+    /// <param name="gameCards">Cards extracted from the decompiled game; the numbers used for every card with a recipe.</param>
+    public CardLibrary(IReadOnlyDictionary<string, CodexCard> codexCards, IReadOnlyDictionary<string, ExtractedCard>? gameCards = null)
+    {
+        _codex = codexCards;
+        _game = gameCards ?? new Dictionary<string, ExtractedCard>();
+    }
 
     /// <summary>Card ids that were requested but Codex doesn't know (the game is newer than the export).</summary>
     public IReadOnlyCollection<string> UnknownIds => _unknown;
@@ -31,10 +40,86 @@ public sealed class CardLibrary
         lock (_cache)
         {
             if (_cache.TryGetValue((id, upgraded), out CardDef? cached)) return cached;
-            CardDef def = _codex.TryGetValue(id, out CodexCard? card) ? Build(card, upgraded) : Unknown(id, upgraded);
+            CardDef def = FromRecipe(id, upgraded)
+                ?? (_codex.TryGetValue(id, out CodexCard? card) ? Build(card, upgraded) : Unknown(id, upgraded));
             _cache[(id, upgraded)] = def;
             return def;
         }
+    }
+
+    public bool Contains(string id) => _codex.ContainsKey(id) || _game.ContainsKey(id);
+
+    /// <summary>True when the card is built from a hand-checked recipe and the game's own numbers, so nothing about it is approximate.</summary>
+    public bool HasRecipe(string id) => _game.TryGetValue(id, out ExtractedCard? ex) && CardRecipes.Get(id, false, VarsOf(ex, false)) != null;
+
+    /// <summary>Cards a random-card effect (Stoke, Infernal Blade) can produce for this character: its pool without Basic, Ancient, Event, and ungeneratable cards.</summary>
+    public IReadOnlyList<CardDef> CombatGenerationPool(string character)
+    {
+        lock (_pools)
+        {
+            if (_pools.TryGetValue(character, out IReadOnlyList<CardDef>? pool)) return pool;
+            pool = _codex.Values
+                .Where(c => string.Equals(c.Color, character, StringComparison.OrdinalIgnoreCase))
+                .Where(c => _game.TryGetValue(c.Id, out ExtractedCard? ex) && ex.CanBeGeneratedInCombat && !ex.MultiplayerOnly
+                            && ex.Rarity is not ("Basic" or "Ancient" or "Event"))
+                .OrderBy(c => c.Id, StringComparer.Ordinal)
+                .Select(c => Get(c.Id, false))
+                .ToList();
+            _pools[character] = pool;
+            return pool;
+        }
+    }
+
+    private static Vars VarsOf(ExtractedCard ex, bool upgraded) => name =>
+    {
+        if (!ex.Vars.TryGetValue(name, out decimal value)) throw new KeyNotFoundException($"{ex.Id} has no variable '{name}'.");
+        if (upgraded && ex.UpgradeVars.TryGetValue(name, out decimal delta)) value += delta;
+        return (int)value;
+    };
+
+    private CardDef? FromRecipe(string id, bool upgraded)
+    {
+        if (!_game.TryGetValue(id, out ExtractedCard? ex)) return null;
+        Recipe? recipe = CardRecipes.Get(id, upgraded, VarsOf(ex, upgraded));
+        if (recipe == null) return null;
+
+        var keywords = new HashSet<string>(ex.Keywords);
+        if (upgraded)
+        {
+            keywords.UnionWith(ex.UpgradeAddKeywords);
+            keywords.ExceptWith(ex.UpgradeRemoveKeywords);
+        }
+        CardKind kind = ex.Type switch
+        {
+            "Attack" => CardKind.Attack,
+            "Power" => CardKind.Power,
+            "Status" => CardKind.Status,
+            "Curse" => CardKind.Curse,
+            _ => CardKind.Skill,
+        };
+        int cost = ex.XCost ? CardDef.XCost
+            : keywords.Contains("Unplayable") || ex.Cost < 0 ? CardDef.Unplayable
+            : Math.Max(0, ex.Cost + (upgraded ? ex.UpgradeCost : 0));
+
+        var def = new CardDef
+        {
+            Id = id,
+            Upgraded = upgraded,
+            Kind = kind,
+            Cost = cost,
+            Exhaust = keywords.Contains("Exhaust"),
+            Ethereal = keywords.Contains("Ethereal"),
+            Innate = keywords.Contains("Innate"),
+            Retain = keywords.Contains("Retain"),
+            IsStrike = ex.Tags.Contains("Strike"),
+            Effects = recipe.Effects,
+            DamageGrowthPerPlay = recipe.Growth,
+            CheaperPerAttackPlayed = recipe.CheaperPerAttack,
+            EnergyWhenExhausted = recipe.EnergyOnExhaust,
+            PlaysFromExhaustPile = recipe.FromExhaustPile,
+            UpgradedForm = !upgraded && kind is CardKind.Attack or CardKind.Skill or CardKind.Power ? FromRecipe(id, true) : null,
+        };
+        return def;
     }
 
     private CardDef Unknown(string id, bool upgraded)
@@ -106,13 +191,15 @@ public sealed class CardLibrary
         if (hpLoss is > 0) effects.Add(new Effect(EffectOp.LoseHp, hpLoss.Value));
         if (damage is > 0)
         {
-            int h = isX ? -1 : Math.Max(1, hits);
-            effects.Add(new Effect(target switch
+            EffectOp op = target switch
             {
                 "AllEnemies" => EffectOp.DamageAll,
                 "RandomEnemy" => EffectOp.DamageRandom,
                 _ => EffectOp.Damage,
-            }, damage.Value, h));
+            };
+            effects.Add(isX
+                ? new Effect(op, damage.Value, Hits: 0, HitsSource: Source.X)
+                : new Effect(op, damage.Value, Math.Max(1, hits)));
         }
         if (block is > 0) effects.Add(new Effect(EffectOp.Block, block.Value));
         foreach ((PowerKind pk, string key, int amount) in powers)
@@ -128,7 +215,7 @@ public sealed class CardLibrary
 
         if (card.DescriptionRaw != null && ComplexText.IsMatch(card.DescriptionRaw) && !endOfTurnCard) approximate = true;
 
-        return Overrides.Apply(new CardDef
+        return new CardDef
         {
             EndTurnDamage = endTurnDamage,
             EndTurnHpLoss = endTurnHpLoss,
@@ -140,9 +227,10 @@ public sealed class CardLibrary
             Ethereal = keywords.Contains("Ethereal"),
             Innate = keywords.Contains("Innate"),
             Retain = keywords.Contains("Retain"),
+            IsStrike = card.Tags?.Contains("Strike") == true,
             Effects = effects.ToArray(),
             Approximate = approximate,
-        });
+        };
     }
 
     private static bool MatchesPower(string upgradeKey, string powerKey)

@@ -2,17 +2,20 @@ namespace SpireMonteCarlo.Sim;
 
 public enum CombatResult { Ongoing, Won, Lost }
 
-/// <summary>Lookups the combat needs to create things mid-fight: status cards handed out by monsters, and monsters they spawn.</summary>
-public sealed record CombatServices(Func<string, CardDef?> Card, Func<string, MonsterDef?> Monster);
+/// <summary>Lookups the combat needs to create things mid-fight: cards (status cards from monsters, generated cards), and monsters they spawn.</summary>
+public sealed record CombatServices(
+    Func<string, CardDef?> Card,
+    Func<string, MonsterDef?> Monster,
+    Func<string, IReadOnlyList<CardDef>>? CardPool = null);
 
 /// <summary>
 /// One combat between the player and a group of enemies. Rules follow the game's own code (checked against the
-/// decompiled v0.111 power classes): Vulnerable +50% damage taken, Weak -25% damage dealt, Frail -25% block
-/// gained, and those three tick down when the enemy side finishes its turn. Monster mechanics (Slow, Asleep,
-/// Skittish, Hardened Shell, Slippery, Intangible, Shriek, Plow, Ringing, Infested, Steam Eruption, ...) follow their
-/// power classes too. A combat owns all its state, so many can run in parallel.
+/// decompiled v0.111 classes): Vulnerable +50% damage taken, Weak -25% damage dealt, Frail -25% block
+/// gained, and those three tick down when the enemy side finishes its turn. Card behavior lives in Combat.Cards.cs,
+/// monster mechanics (Slow, Asleep, Skittish, Hardened Shell, ...) follow their power classes. A combat owns all its
+/// state, so many can run in parallel.
 /// </summary>
-public sealed class Combat
+public sealed partial class Combat
 {
     public const int HandSize = 5;
     public const int MaxHandSize = 10;
@@ -22,11 +25,12 @@ public sealed class Combat
 
     public SimRng Rng { get; }
     public int Ascension { get; }
+    public string Character { get; }
     public bool ToughEnemies => Ascension >= 8;
     public bool DeadlyEnemies => Ascension >= 9;
 
     public int Hp { get; private set; }
-    public int MaxHp { get; }
+    public int MaxHp { get; private set; }
     public int Block { get; private set; }
     public int Energy { get; private set; }
     public int MaxEnergy { get; }
@@ -41,6 +45,7 @@ public sealed class Combat
 
     public CombatResult Result { get; private set; }
     public int HpLost { get; private set; }
+    public int MaxHpGained { get; private set; }
     public int CardsPlayed { get; private set; }
     public int CardsPlayedThisTurn { get; private set; }
 
@@ -52,18 +57,54 @@ public sealed class Combat
     /// </summary>
     public double EnemyDamageScale { get; }
 
-    public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed,
-        int maxEnergy = 3, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, CombatServices? services = null)
+    /// <summary>The potions the player carries into and out of this fight.</summary>
+    public List<PotionDef> Potions { get; } = new();
+
+    /// <summary>How much the fight matters (0 normal, 1 elite, 2 boss); the bot spends potions more freely when it is higher.</summary>
+    public int Stakes { get; init; }
+
+    /// <summary>A copy of the whole combat as it stands, including its random stream, for trying plays out. <paramref name="salt"/> (non-zero) makes the copy's random draws differ from the real ones.</summary>
+    public Combat Clone(ulong salt = 0) => new(this, salt);
+
+    private Combat(Combat src, ulong salt)
     {
+        Rng = src.Rng.Clone();
+        if (salt != 0) Rng.Perturb(salt);
+        Ascension = src.Ascension;
+        Character = src.Character;
+        EnemyDamageScale = src.EnemyDamageScale;
+        _services = src._services;
+        MaxEnergy = src.MaxEnergy;
+        Stakes = src.Stakes;
+        Hp = src.Hp; MaxHp = src.MaxHp; Block = src.Block; Energy = src.Energy; Turn = src.Turn;
+        Array.Copy(src.PlayerPowers, PlayerPowers, PlayerPowers.Length);
+        foreach (CardDef c in src.DrawPile) DrawPile.Add(c.Copy());
+        foreach (CardDef c in src.Hand) Hand.Add(c.Copy());
+        foreach (CardDef c in src.DiscardPile) DiscardPile.Add(c.Copy());
+        foreach (CardDef c in src.ExhaustPile) ExhaustPile.Add(c.Copy());
+        foreach (Enemy e in src.Enemies) Enemies.Add(e.Copy());
+        Potions.AddRange(src.Potions);
+        Result = src.Result; HpLost = src.HpLost; MaxHpGained = src.MaxHpGained; CardsPlayed = src.CardsPlayed; CardsPlayedThisTurn = src.CardsPlayedThisTurn;
+        _playerTurn = src._playerTurn; _attacksPlayedThisTurn = src._attacksPlayedThisTurn; _cardBlockGainsThisTurn = src._cardBlockGainsThisTurn;
+        _cardsExhaustedThisTurn = src._cardsExhaustedThisTurn; _lostHpThisTurn = src._lostHpThisTurn; _timesHurt = src._timesHurt;
+        _cardsInPlay = src._cardsInPlay; _pendingRupture = src._pendingRupture;
+    }
+
+    public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed,
+        int maxEnergy = 3, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, CombatServices? services = null,
+        string character = "ironclad", IEnumerable<PotionDef>? potions = null)
+    {
+        if (potions != null) Potions.AddRange(potions);
         Rng = new SimRng(seed);
         Ascension = ascension;
+        Character = character;
         EnemyDamageScale = enemyDamageScale;
         _services = services;
         Hp = hp;
         MaxHp = maxHp;
         MaxEnergy = maxEnergy;
 
-        var cards = deck.ToList();
+        var cards = deck.Select(c => c.Instantiate()).ToList();
         Rng.Shuffle(cards);
         // Innate cards start on top of the draw pile.
         DrawPile.AddRange(cards.Where(c => !c.Innate));
@@ -92,37 +133,55 @@ public sealed class Combat
         (int lo, int hi) = ToughEnemies ? (def.HpMinTough, def.HpMaxTough) : (def.HpMin, def.HpMax);
         int enemyHp = Rng.NextInclusive(lo, Math.Max(lo, hi));
         var enemy = new Enemy { Def = def, Index = Enemies.Count, Hp = enemyHp, MaxHp = enemyHp };
-        foreach ((PowerKind power, int amount) in def.Innate)
+        foreach (InnatePower innate in def.Innate)
         {
-            enemy.Powers[(int)power] += amount + (power == PowerKind.Shriek && ToughEnemies ? 5 : 0);   // Terror Eel: 75 at A8+
-            if (power == PowerKind.Ritual) enemy.RitualSkip = true;
+            enemy.Powers[(int)innate.Power] += innate.At(Ascension);
+            if (innate.Power == PowerKind.Ritual) enemy.RitualSkip = true;
         }
+        enemy.Block += def.InnateBlockAscension > 0 && Ascension >= def.InnateBlockAscension ? def.InnateBlockAlt : def.InnateBlock;
         return enemy;
     }
 
     // ---- queries the bot uses -------------------------------------------------------------------------------
 
+    /// <summary>What playing the card would cost right now, after Corruption, free-this-turn, and Free Attack.</summary>
+    public int EffectiveCost(CardDef card)
+    {
+        if (card.Cost == CardDef.Unplayable) return CardDef.Unplayable;
+        if (card.Cost == CardDef.XCost) return CardDef.XCost;
+        if (card.FreeThisTurn) return 0;
+        if (PlayerPowers[(int)PowerKind.Corruption] > 0 && card.Kind == CardKind.Skill) return 0;
+        if (PlayerPowers[(int)PowerKind.FreeAttack] > 0 && card.Kind == CardKind.Attack) return 0;
+        return card.CurrentCost;
+    }
+
     public bool CanPlay(CardDef card)
     {
         if (Result != CombatResult.Ongoing || card.Cost == CardDef.Unplayable) return false;
         if (PlayerPowers[(int)PowerKind.Ringing] > 0 && CardsPlayedThisTurn >= 1) return false;
-        return card.Cost == CardDef.XCost || card.Cost <= Energy;
+        int cost = EffectiveCost(card);
+        return cost == CardDef.XCost || cost <= Energy;
     }
 
-    /// <summary>Damage one attack of <paramref name="baseDamage"/> would deal to <paramref name="target"/> right now.</summary>
-    public int PlayerAttackDamage(int baseDamage, Enemy target)
+    /// <summary>Damage one attack of <paramref name="baseDamage"/> would deal to <paramref name="target"/> right now (null: ignore the target's powers).</summary>
+    public int PlayerAttackDamage(int baseDamage, Enemy? target)
     {
         double d = Math.Max(0, baseDamage + PlayerPowers[(int)PowerKind.Strength]);
         if (PlayerPowers[(int)PowerKind.Weak] > 0) d *= 0.75;
-        if (target.Powers[(int)PowerKind.Vulnerable] > 0) d *= 1.5;
-        if (target.Powers[(int)PowerKind.Slow] > 0) d *= 1 + 0.1 * target.SlowCards;
+        if (target != null)
+        {
+            if (target.Powers[(int)PowerKind.Vulnerable] > 0) d *= 1.5 + PlayerPowers[(int)PowerKind.Cruelty] / 100.0;
+            if (target.Powers[(int)PowerKind.Slow] > 0) d *= 1 + 0.1 * target.SlowCards;
+        }
         return (int)Math.Floor(d);
     }
 
+    /// <summary>Block a card of <paramref name="baseBlock"/> would give right now, with Dexterity, Frail, and Unmovable.</summary>
     public int PlayerBlockGain(int baseBlock)
     {
         double b = Math.Max(0, baseBlock + PlayerPowers[(int)PowerKind.Dexterity]);
         if (PlayerPowers[(int)PowerKind.Frail] > 0) b *= 0.75;
+        if (PlayerPowers[(int)PowerKind.Unmovable] > 0 && _cardBlockGainsThisTurn < PlayerPowers[(int)PowerKind.Unmovable]) b *= 2;
         return (int)Math.Floor(b);
     }
 
@@ -132,6 +191,7 @@ public sealed class Combat
         double d = Math.Max(0, baseDamage + attacker.Powers[(int)PowerKind.Strength] + attacker.Powers[(int)PowerKind.Vigor]);
         if (attacker.Powers[(int)PowerKind.Weak] > 0) d *= 0.75;
         if (PlayerPowers[(int)PowerKind.Vulnerable] > 0) d *= 1.5;
+        if (PlayerPowers[(int)PowerKind.Colossus] > 0 && attacker.Powers[(int)PowerKind.Vulnerable] > 0) d *= 0.5;
         return (int)Math.Floor(d * EnemyDamageScale);
     }
 
@@ -144,68 +204,69 @@ public sealed class Combat
         MoveDef? move = e.Move;
         if (move == null) return 0;
         if (move.Id == "EXPLODE") return e.ExplodeDamage;
-        int damage = move.DamagePerHit(DeadlyEnemies);
+        int damage = move.DamageAt(Ascension);
         return move.Id == "PRESSURE_GUN" ? damage + e.GunBonus : damage;
     }
 
     /// <summary>Damage the enemy's visible move will do to the player if nothing is blocked.</summary>
-    public int IntentDamage(Enemy e) => !IntendsAttack(e) ? 0 : (e.Move!.Id == "EXPLODE" ? 1 : e.Move.Hits) * EnemyAttackDamage(MoveBaseDamage(e), e);
+    public int IntentDamage(Enemy e) => !IntendsAttack(e) ? 0 : (e.Move!.Id == "EXPLODE" ? 1 : e.Move.HitsAt(Ascension)) * EnemyAttackDamage(MoveBaseDamage(e), e);
 
     /// <summary>Total damage the enemies' visible intents will do to the player if nothing is blocked.</summary>
     public int IncomingDamage() => Enemies.Where(e => e.Alive).Sum(IntentDamage);
 
-    // ---- player actions -------------------------------------------------------------------------------------
-
-    /// <summary>Plays the card in <paramref name="handIndex"/>. <paramref name="targetIndex"/> is an index into <see cref="Enemies"/>.</summary>
-    public void Play(int handIndex, int targetIndex)
-    {
-        CardDef card = Hand[handIndex];
-        if (!CanPlay(card)) throw new InvalidOperationException($"Cannot play {card} with {Energy} energy.");
-        Hand.RemoveAt(handIndex);
-
-        int x = 0;
-        if (card.Cost == CardDef.XCost) { x = Energy; Energy = 0; }
-        else Energy -= card.Cost;
-
-        int target = ResolveTarget(targetIndex);
-        foreach (Effect effect in card.Effects)
-        {
-            if (Result != CombatResult.Ongoing) break;
-            Apply(effect, target, x);
-        }
-        CardsPlayed++;
-        CardsPlayedThisTurn++;
-        foreach (Enemy e in Enemies)
-            if (e.Powers[(int)PowerKind.Slow] > 0) e.SlowCards++;
-
-        if (card.Kind == CardKind.Power) { /* stays in play for the rest of the combat */ }
-        else if (card.Exhaust) ExhaustPile.Add(card);
-        else DiscardPile.Add(card);
-
-        CheckEnd();
-    }
+    // ---- turn flow ------------------------------------------------------------------------------------------
 
     public void EndPlayerTurn()
     {
         if (Result != CombatResult.Ongoing) return;
 
-        Block += PlayerPowers[(int)PowerKind.Plating] + PlayerPowers[(int)PowerKind.Metallicize];
+        // Powers that pay out as the turn ends.
+        GainBlockRaw(PlayerPowers[(int)PowerKind.Plating] + PlayerPowers[(int)PowerKind.Metallicize]);
+
+        // After the player's last card: Stampede and Howl from Beyond play cards on their own.
+        for (int i = 0; i < PlayerPowers[(int)PowerKind.Stampede] && Result == CombatResult.Ongoing; i++)
+        {
+            var attacks = Hand.Where(c => c.Kind == CardKind.Attack && c.Cost != CardDef.Unplayable).ToList();
+            if (attacks.Count == 0) break;
+            AutoPlay(attacks[Rng.Next(attacks.Count)], forceExhaust: false);
+        }
+        foreach (CardDef card in ExhaustPile.Where(c => c.PlaysFromExhaustPile).ToList())
+        {
+            if (Result != CombatResult.Ongoing) break;
+            ExhaustPile.Remove(card);
+            AutoPlay(card, forceExhaust: false, alreadyRemoved: true);
+        }
+        if (Result != CombatResult.Ongoing) return;
 
         // Status cards still in hand hurt (Burn, Infection, Toxic, ...).
         foreach (CardDef card in Hand.ToList())
         {
-            if (card.EndTurnDamage > 0) HitPlayer(card.EndTurnDamage);
+            if (card.EndTurnDamage > 0) HitPlayer(card.EndTurnDamage, null);
             if (card.EndTurnHpLoss > 0) LoseHp(card.EndTurnHpLoss);
         }
         if (Result != CombatResult.Ongoing) return;
 
-        foreach (CardDef card in Hand)
+        foreach (CardDef card in Hand.ToList())
         {
-            if (card.Ethereal) ExhaustPile.Add(card);
+            if (card.Ethereal) ExhaustCard(card, causedByEthereal: true);
             else if (!card.Retain) DiscardPile.Add(card);
+            else continue;
+            Hand.Remove(card);
         }
-        Hand.RemoveAll(c => c.Ethereal || !c.Retain);
+        _playerTurn = false;
+
+        // Powers that end with the player's turn.
+        PlayerPowers[(int)PowerKind.Rage] = 0;
+        PlayerPowers[(int)PowerKind.NoDraw] = 0;
+        PlayerPowers[(int)PowerKind.OneTwoPunch] = 0;
         PlayerPowers[(int)PowerKind.Ringing] = 0;   // it only limits the one turn it was applied for
+        PlayerPowers[(int)PowerKind.Strength] -= PlayerPowers[(int)PowerKind.TempStrength];
+        PlayerPowers[(int)PowerKind.TempStrength] = 0;
+        PlayerPowers[(int)PowerKind.Dexterity] -= PlayerPowers[(int)PowerKind.TempDexterity];
+        PlayerPowers[(int)PowerKind.TempDexterity] = 0;
+        int ethereal = PlayerPowers[(int)PowerKind.DarkEmbraceEthereal];
+        PlayerPowers[(int)PowerKind.DarkEmbraceEthereal] = 0;
+        if (ethereal > 0) DrawCards(PlayerPowers[(int)PowerKind.DarkEmbrace] * ethereal);
 
         RunEnemyTurn();
         CheckEnd();
@@ -216,98 +277,111 @@ public sealed class Combat
         }
     }
 
-    // ---- internals ------------------------------------------------------------------------------------------
-
     private void StartPlayerTurn()
     {
         Turn++;
+        _playerTurn = true;
         CardsPlayedThisTurn = 0;
+        _attacksPlayedThisTurn = 0;
+        _cardBlockGainsThisTurn = 0;
+        _cardsExhaustedThisTurn = 0;
+        _lostHpThisTurn = false;
         if (PlayerPowers[(int)PowerKind.Barricade] == 0) Block = 0;
-        if (PlayerPowers[(int)PowerKind.Plating] > 0) PlayerPowers[(int)PowerKind.Plating]--;
+        if (Turn > 1 && PlayerPowers[(int)PowerKind.Plating] > 0) PlayerPowers[(int)PowerKind.Plating]--;
         foreach (Enemy e in Enemies)
         {
             e.SkittishUsed = false;
             e.ShellDamage = 0;
         }
-        Energy = MaxEnergy;
-        DrawCards(HandSize);
+        foreach (var pile in new[] { DrawPile, Hand, DiscardPile, ExhaustPile })
+            foreach (CardDef c in pile)
+            {
+                c.CostReductionThisTurn = 0;
+                c.FreeThisTurn = false;
+            }
+        Energy = MaxEnergy + PlayerPowers[(int)PowerKind.Pyre];
+
+        PullAttacksFromDiscard(PlayerPowers[(int)PowerKind.Aggression]);
+        PlayerPowers[(int)PowerKind.Strength] += PlayerPowers[(int)PowerKind.DemonForm];
+        DrawCards(HandSize, fromHandDraw: true);
+
+        if (PlayerPowers[(int)PowerKind.CrimsonMantle] > 0)
+        {
+            LoseHp(PlayerPowers[(int)PowerKind.CrimsonSelfDamage]);
+            GainBlockRaw(PlayerPowers[(int)PowerKind.CrimsonMantle]);
+        }
+        if (PlayerPowers[(int)PowerKind.Inferno] > 0) LoseHp(PlayerPowers[(int)PowerKind.InfernoSelfDamage]);
+        CheckEnd();
     }
 
-    private int ResolveTarget(int targetIndex)
+    // ---- HP, block, and damage ------------------------------------------------------------------------------
+
+    private void HitPlayer(int damage, Enemy? attacker)
     {
-        if (targetIndex >= 0 && targetIndex < Enemies.Count && Targetable(Enemies[targetIndex])) return targetIndex;
-        return Enemies.FindIndex(Targetable);
+        int absorbed = Math.Min(Block, damage);
+        Block -= absorbed;
+        LoseHp(damage - absorbed);
+        if (attacker != null && PlayerPowers[(int)PowerKind.FlameBarrier] > 0 && attacker.Alive)
+            DamageEnemy(attacker, PlayerPowers[(int)PowerKind.FlameBarrier], fromCard: false);
+    }
+
+    /// <summary>HP loss that block can't stop. On the player's own turn it feeds Rupture and Inferno.</summary>
+    private void LoseHp(int amount)
+    {
+        if (amount <= 0) return;
+        Hp -= amount;
+        HpLost += amount;
+        _timesHurt++;
+        if (Hp <= 0 && !TryFairyInABottle()) Result = CombatResult.Lost;
+        if (!_playerTurn) return;
+
+        _lostHpThisTurn = true;
+        if (PlayerPowers[(int)PowerKind.Rupture] > 0)
+        {
+            // Hurt by a card you are playing: the Strength arrives once the card has finished.
+            if (_cardsInPlay > 0) _pendingRupture += PlayerPowers[(int)PowerKind.Rupture];
+            else PlayerPowers[(int)PowerKind.Strength] += PlayerPowers[(int)PowerKind.Rupture];
+        }
+        if (PlayerPowers[(int)PowerKind.Inferno] > 0 && Result == CombatResult.Ongoing)
+            foreach (Enemy e in Enemies.ToList())
+                if (Targetable(e)) DamageEnemy(e, PlayerPowers[(int)PowerKind.Inferno], fromCard: false);
     }
 
     private static bool Targetable(Enemy e) => e.Alive && !e.Dying;
 
-    private void Apply(Effect effect, int target, int x)
+    /// <summary>Block from a card (already scaled by Dexterity and Frail); Unmovable doubles the first few each turn.</summary>
+    private void GainBlockFromCard(int baseBlock)
     {
-        switch (effect.Op)
+        int amount = PlayerBlockGain(baseBlock);
+        _cardBlockGainsThisTurn++;
+        GainBlockRaw(amount);
+    }
+
+    /// <summary>Block from a power or effect that Dexterity and Frail don't touch; Juggernaut reacts to every gain.</summary>
+    private void GainBlockRaw(int amount)
+    {
+        if (amount <= 0) return;
+        Block += amount;
+        if (PlayerPowers[(int)PowerKind.Juggernaut] > 0)
         {
-            case EffectOp.Damage:
-                for (int h = effect.Hits == -1 ? x : effect.Hits; h > 0; h--)
-                {
-                    int t = ResolveTarget(target);
-                    if (t < 0) break;
-                    DamageEnemy(Enemies[t], PlayerAttackDamage(effect.Amount, Enemies[t]), fromCard: true);
-                }
-                break;
-            case EffectOp.DamageAll:
-                for (int h = effect.Hits == -1 ? x : effect.Hits; h > 0; h--)
-                    foreach (Enemy e in Enemies.ToList())
-                        if (Targetable(e)) DamageEnemy(e, PlayerAttackDamage(effect.Amount, e), fromCard: true);
-                break;
-            case EffectOp.DamageRandom:
-                for (int h = effect.Hits == -1 ? x : effect.Hits; h > 0; h--)
-                {
-                    var alive = Enemies.Where(Targetable).ToList();
-                    if (alive.Count == 0) break;
-                    Enemy e = alive[Rng.Next(alive.Count)];
-                    DamageEnemy(e, PlayerAttackDamage(effect.Amount, e), fromCard: true);
-                }
-                break;
-            case EffectOp.DamageEqualBlock:
-                {
-                    int t = ResolveTarget(target);
-                    if (t >= 0) DamageEnemy(Enemies[t], PlayerAttackDamage(Block, Enemies[t]), fromCard: true);
-                    break;
-                }
-            case EffectOp.Block: Block += PlayerBlockGain(effect.Amount); break;
-            case EffectOp.Draw: DrawCards(effect.Amount); break;
-            case EffectOp.Energy: Energy += effect.Amount; break;
-            case EffectOp.LoseHp: LoseHp(effect.Amount); break;
-            case EffectOp.DebuffEnemy:
-                {
-                    int t = ResolveTarget(target);
-                    if (t >= 0) AddPower(Enemies[t].Powers, effect.Power, effect.Amount, debuff: true);
-                    break;
-                }
-            case EffectOp.DebuffAll:
-                foreach (Enemy e in Enemies)
-                    if (Targetable(e)) AddPower(e.Powers, effect.Power, effect.Amount, debuff: true);
-                break;
-            case EffectOp.DebuffSelf: AddPower(PlayerPowers, effect.Power, effect.Amount, debuff: true); break;
-            case EffectOp.BuffSelf: AddPower(PlayerPowers, effect.Power, effect.Amount, debuff: false); break;
+            var alive = Enemies.Where(Targetable).ToList();
+            if (alive.Count > 0) DamageEnemy(alive[Rng.Next(alive.Count)], PlayerPowers[(int)PowerKind.Juggernaut], fromCard: false);
         }
     }
 
-    private static void AddPower(int[] powers, PowerKind kind, int amount, bool debuff)
+    private void Heal(int amount) => Hp = Math.Min(MaxHp, Hp + amount);
+
+    private void GainMaxHp(int amount)
     {
-        if (kind == PowerKind.Unsupported) return;
-        // Artifact absorbs one debuff application per stack.
-        if (debuff && PowerRules.IsDebuff(kind) && powers[(int)PowerKind.Artifact] > 0)
-        {
-            powers[(int)PowerKind.Artifact]--;
-            return;
-        }
-        powers[(int)kind] += amount;
+        MaxHp += amount;
+        Hp += amount;
+        MaxHpGained += amount;
     }
 
-    /// <summary>All damage the player deals to an enemy goes through here, so the enemy's defensive powers apply once.</summary>
-    private void DamageEnemy(Enemy enemy, int damage, bool fromCard)
+    /// <summary>All damage the player deals to an enemy goes through here, so the enemy's defensive powers apply once. Returns true if it killed the enemy.</summary>
+    private bool DamageEnemy(Enemy enemy, int damage, bool fromCard)
     {
-        if (!enemy.Alive || enemy.Dying) return;
+        if (!enemy.Alive || enemy.Dying) return false;
 
         if (enemy.Powers[(int)PowerKind.Intangible] > 0) damage = Math.Min(damage, 1);
         int absorbed = Math.Min(enemy.Block, damage);
@@ -324,7 +398,7 @@ public sealed class Combat
             lost = Math.Max(0, Math.Min(lost, enemy.Powers[(int)PowerKind.HardenedShell] - enemy.ShellDamage));
             enemy.ShellDamage += lost;
         }
-        if (lost <= 0) return;
+        if (lost <= 0) return false;
 
         enemy.Hp -= lost;
         if (fromCard && enemy.Powers[(int)PowerKind.Skittish] > 0 && !enemy.SkittishUsed)
@@ -333,8 +407,13 @@ public sealed class Combat
             enemy.Block += enemy.Powers[(int)PowerKind.Skittish];
         }
 
-        if (enemy.Hp <= 0) OnEnemyDeath(enemy);
-        else OnEnemyDamaged(enemy);
+        if (enemy.Hp <= 0)
+        {
+            OnEnemyDeath(enemy);
+            return !enemy.Dying;
+        }
+        OnEnemyDamaged(enemy);
+        return false;
     }
 
     /// <summary>Powers that react to an enemy losing HP without dying: waking up, phase changes.</summary>
@@ -388,43 +467,15 @@ public sealed class Combat
         }
     }
 
-    private void HitPlayer(int damage)
-    {
-        int absorbed = Math.Min(Block, damage);
-        Block -= absorbed;
-        LoseHp(damage - absorbed);
-    }
-
-    private void LoseHp(int amount)
-    {
-        if (amount <= 0) return;
-        Hp -= amount;
-        HpLost += amount;
-        if (Hp <= 0) Result = CombatResult.Lost;
-    }
-
-    private void DrawCards(int count)
-    {
-        for (int i = 0; i < count && Hand.Count < MaxHandSize; i++)
-        {
-            if (DrawPile.Count == 0)
-            {
-                if (DiscardPile.Count == 0) return;
-                DrawPile.AddRange(DiscardPile);
-                DiscardPile.Clear();
-                Rng.Shuffle(DrawPile);
-            }
-            Hand.Add(DrawPile[^1]);
-            DrawPile.RemoveAt(DrawPile.Count - 1);
-        }
-    }
+    // ---- enemy turn -----------------------------------------------------------------------------------------
 
     private void AddCards(CardAdd add)
     {
-        CardDef? card = _services?.Card(add.CardId);
-        if (card == null) return;
+        CardDef? template = _services?.Card(add.CardId);
+        if (template == null) return;
         for (int i = 0; i < add.CountAt(Ascension); i++)
         {
+            CardDef card = template.Instantiate();
             switch (add.Pile)
             {
                 case AddPile.Discard: DiscardPile.Add(card); break;
@@ -461,13 +512,20 @@ public sealed class Combat
             e.Advance();
         }
 
-        // End of the enemy side's turn: debuffs count down on everyone.
+        // End of the enemy side's turn: debuffs count down on everyone, and turn-long effects wear off.
         foreach (PowerKind kind in Enum.GetValues<PowerKind>())
         {
             if (!PowerRules.TicksDownAfterEnemyTurn(kind)) continue;
             if (PlayerPowers[(int)kind] > 0) PlayerPowers[(int)kind]--;
             foreach (Enemy e in Enemies)
                 if (e.Powers[(int)kind] > 0) e.Powers[(int)kind]--;
+        }
+        PlayerPowers[(int)PowerKind.FlameBarrier] = 0;
+        if (PlayerPowers[(int)PowerKind.Colossus] > 0) PlayerPowers[(int)PowerKind.Colossus]--;
+        foreach (Enemy e in Enemies)
+        {
+            e.Powers[(int)PowerKind.Strength] += e.Powers[(int)PowerKind.TempStrengthDown];
+            e.Powers[(int)PowerKind.TempStrengthDown] = 0;
         }
 
         // Sleepers count down; on their last sleeping turn they lose their plating, then wake.
@@ -497,20 +555,22 @@ public sealed class Combat
             }
         }
 
-        int hits = move.Id == "EXPLODE" ? (e.ExplodeDamage > 0 ? 1 : 0) : (move.IsAttack ? move.Hits : 0);
+        int hits = move.Id == "EXPLODE" ? (e.ExplodeDamage > 0 ? 1 : 0) : (move.IsAttack ? move.HitsAt(Ascension) : 0);
         int baseDamage = MoveBaseDamage(e);
-        for (int h = 0; h < hits && Result == CombatResult.Ongoing; h++)
-            HitPlayer(EnemyAttackDamage(baseDamage, e));
+        for (int h = 0; h < hits && Result == CombatResult.Ongoing && e.Alive; h++)
+            HitPlayer(EnemyAttackDamage(baseDamage, e), e);
         if (hits > 0) e.Powers[(int)PowerKind.Vigor] = 0;   // Vigor is used up by the attack it boosts
         if (move.Id == "PRESSURE_GUN") e.GunBonus += 5;
+        if (!e.Alive && !e.Dying) return;
 
-        if (move.Block > 0) e.Block += move.Block;
+        e.Block += move.BlockAt(Ascension);
         foreach (MovePower p in move.Powers)
         {
-            if (p.OnPlayer) AddPower(PlayerPowers, p.Power, p.Amount, debuff: true);
+            int amount = p.AmountAt(Ascension);
+            if (p.OnPlayer) AddPower(PlayerPowers, p.Power, amount, debuff: true);
             else
             {
-                AddPower(e.Powers, p.Power, p.Amount + (p.Power == PowerKind.Plow && DeadlyEnemies ? 10 : 0), debuff: false);   // Ceremonial Beast: 160 at A9+
+                AddPower(e.Powers, p.Power, amount, debuff: false);
                 if (p.Power == PowerKind.Ritual) e.RitualSkip = true;
             }
         }
@@ -522,6 +582,18 @@ public sealed class Combat
             e.Dying = false;
             e.Hp = 0;
         }
+    }
+
+    private static void AddPower(int[] powers, PowerKind kind, int amount, bool debuff)
+    {
+        if (kind == PowerKind.Unsupported) return;
+        // Artifact absorbs one debuff application per stack.
+        if (debuff && PowerRules.IsDebuff(kind) && powers[(int)PowerKind.Artifact] > 0)
+        {
+            powers[(int)PowerKind.Artifact]--;
+            return;
+        }
+        powers[(int)kind] += amount;
     }
 
     private void CheckEnd()

@@ -10,6 +10,12 @@ public sealed class SimRng
 
     public SimRng(ulong seed) => _state = seed;
 
+    /// <summary>An independent generator that continues from the same state (used when a planner tries plays on a copy of the combat).</summary>
+    public SimRng Clone() => new(_state);
+
+    /// <summary>Moves this generator to a different stream, so a copy's random draws differ from the real ones.</summary>
+    public void Perturb(ulong salt) => _state ^= salt * 0x9E3779B97F4A7C15UL;
+
     public ulong NextU64()
     {
         ulong z = _state += 0x9E3779B97F4A7C15UL;
