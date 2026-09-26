@@ -55,6 +55,9 @@ public sealed class MonsterDef
     public Dictionary<string, StateDef> States { get; init; } = new();
     public string InitialState { get; init; } = "";
 
+    /// <summary>Starting state used instead of <see cref="InitialState"/> for the one monster an encounter flags (e.g. the middle Inklet).</summary>
+    public string? AltInitialState { get; init; }
+
     /// <summary>State ids by starting index; non-empty when the first move depends on the monster's starter index.</summary>
     public string[] StarterSwitch { get; init; } = Array.Empty<string>();
 
@@ -197,6 +200,7 @@ public sealed class MonsterLibrary
             Moves = moves,
             States = states,
             InitialState = initial,
+            AltInitialState = machine?.AltInitial,
             StarterSwitch = starterSwitch,
             Innate = innate.ToArray(),
             ExactAi = exact,

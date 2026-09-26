@@ -39,7 +39,7 @@ public sealed class Combat
 
     public int AliveEnemies => Enemies.Count(e => e.Alive);
 
-    public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed, int maxEnergy = 3)
+    public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed, int maxEnergy = 3, IReadOnlyList<int>? altStarts = null)
     {
         Rng = new SimRng(seed);
         Ascension = ascension;
@@ -58,7 +58,11 @@ public sealed class Combat
             (int lo, int hi) = ToughEnemies ? (def.HpMinTough, def.HpMaxTough) : (def.HpMin, def.HpMax);
             int enemyHp = Rng.NextInclusive(lo, Math.Max(lo, hi));
             var enemy = new Enemy { Def = def, Index = Enemies.Count, Hp = enemyHp, MaxHp = enemyHp };
-            foreach ((PowerKind power, int amount) in def.Innate) enemy.Powers[(int)power] += amount;
+            foreach ((PowerKind power, int amount) in def.Innate)
+            {
+                enemy.Powers[(int)power] += amount;
+                if (power == PowerKind.Ritual) enemy.RitualSkip = true;
+            }
             Enemies.Add(enemy);
         }
         // Monsters whose first move depends on a starter index (slugs, rats, ...) get consecutive indices from a random start.
@@ -69,6 +73,9 @@ public sealed class Combat
             int first = Rng.Next(k);
             for (int j = 0; j < starters.Count; j++) starters[j].StarterIndex = (first + j) % k;
         }
+        if (altStarts != null)
+            foreach (int index in altStarts)
+                if (index >= 0 && index < Enemies.Count) Enemies[index].AltStart = true;
         foreach (Enemy e in Enemies) e.Start(this);
 
         StartPlayerTurn();
@@ -311,11 +318,16 @@ public sealed class Combat
                 foreach (MovePower p in move.Powers)
                 {
                     if (p.OnPlayer) AddPower(PlayerPowers, p.Power, p.Amount, debuff: true);
-                    else AddPower(e.Powers, p.Power, p.Amount, debuff: false);
+                    else
+                    {
+                        AddPower(e.Powers, p.Power, p.Amount, debuff: false);
+                        if (p.Power == PowerKind.Ritual) e.RitualSkip = true;
+                    }
                 }
             }
 
-            e.Powers[(int)PowerKind.Strength] += e.Powers[(int)PowerKind.Ritual];
+            if (e.RitualSkip) e.RitualSkip = false;
+            else e.Powers[(int)PowerKind.Strength] += e.Powers[(int)PowerKind.Ritual];
             e.Block += e.Powers[(int)PowerKind.Plating] + e.Powers[(int)PowerKind.Metallicize];
             e.AdvanceAndPlan(this);
         }

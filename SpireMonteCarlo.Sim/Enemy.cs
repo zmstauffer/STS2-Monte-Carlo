@@ -13,6 +13,12 @@ public sealed class Enemy
     /// <summary>For monsters whose first move depends on a starter index (assigned per encounter).</summary>
     public int StarterIndex { get; set; }
 
+    /// <summary>Start in the monster's alternative first state (an encounter flag such as StartsWithDance).</summary>
+    public bool AltStart { get; set; }
+
+    /// <summary>Ritual was just applied, so its first end-of-turn Strength gain is skipped (as in the game's RitualPower).</summary>
+    public bool RitualSkip { get; set; }
+
     /// <summary>The move it will make on its next turn (its visible intent). Null if the data had none.</summary>
     public MoveDef? Move { get; private set; }
 
@@ -25,7 +31,8 @@ public sealed class Enemy
 
     public void Start(Combat combat)
     {
-        _stateId = Def.StarterSwitch.Length > 0 ? Def.StarterSwitch[StarterIndex % Def.StarterSwitch.Length] : Def.InitialState;
+        _stateId = AltStart && Def.AltInitialState != null ? Def.AltInitialState
+            : Def.StarterSwitch.Length > 0 ? Def.StarterSwitch[StarterIndex % Def.StarterSwitch.Length] : Def.InitialState;
         Plan(combat);
     }
 

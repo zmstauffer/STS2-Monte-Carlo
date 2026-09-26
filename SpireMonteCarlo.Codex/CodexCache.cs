@@ -177,6 +177,12 @@ public sealed class CodexCache
         File.WriteAllText(Path.Combine(dir, "monster_ai.json"), JsonSerializer.Serialize(machines, Json));
     }
 
+    public IReadOnlyDictionary<string, CodexEncounterStat> LoadEncounterStats() =>
+        // Some encounters (event fights) are listed once per act; keep the biggest sample.
+        Read<CodexEncounterStats>("encounter_stats.json").Encounters
+            .GroupBy(e => e.EncounterId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.Total).First());
+
     /// <summary>Base-card (non-upgraded) metric rows by id for one bracket, e.g. "wr50".</summary>
     public IReadOnlyDictionary<string, CodexMetricRow> LoadMetrics(string type, string bracket) =>
         Read<CodexMetrics>(Path.Combine("metrics", $"{type}_{bracket}.json")).Rows

@@ -30,6 +30,12 @@ public sealed class ExtractedMachine
     public string? Initial { get; set; }
 
     /// <summary>
+    /// When the start is "flag ? a : b": <see cref="Initial"/> is b (flag off, the usual case) and this is a (flag on).
+    /// The flag is set per encounter for one particular monster (e.g. the middle Inklet).
+    /// </summary>
+    public string? AltInitial { get; set; }
+
+    /// <summary>
     /// When the starting state depends on the monster's StarterMoveIdx: the states in index order, where the index
     /// is taken modulo the list length. Empty when <see cref="Initial"/> is fixed.
     /// </summary>
@@ -50,7 +56,6 @@ public static class MonsterAiExtractor
     private static readonly Regex AddState = new(@"(?<cb>\w+)\.AddState\(\s*(?<state>\w+)\s*,\s*\(\)\s*=>\s*(?<cond>[^;]*?)\)\s*;", RegexOptions.Compiled);
     private static readonly Regex Repeat = new(@"MoveRepeatType\.(?<r>\w+)", RegexOptions.Compiled);
     private static readonly Regex Number = new(@"(?<![\w.])(?<n>\d+(?:\.\d+)?)f?(?![\w.])", RegexOptions.Compiled);
-    private static readonly Regex Return = new(@"return\s+new\s+MonsterMoveStateMachine\(\s*\w+\s*,(?<init>.*?)\)\s*;", RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex SwitchArm = new(@"=>\s*(?:\(MonsterState\)\s*)?(?<var>\w+)\s*,", RegexOptions.Compiled);
 
     /// <summary>"GLOMP_MOVE" and "ZOOM_MOVE_2" are the moves GLOMP and ZOOM; states without a suffix ("SWING_1") are named after their move.</summary>
@@ -147,14 +152,64 @@ public static class MonsterAiExtractor
                 cb.Branches.Add(new ExtractedBranch { StateId = target.Id, Condition = m.Groups["cond"].Value.Trim() });
 
         var machine = new ExtractedMachine { States = byVar.Values.ToList() };
-        Match ret = Return.Match(body);
-        if (ret.Success)
+        int ret = body.IndexOf("return new MonsterMoveStateMachine(", StringComparison.Ordinal);
+        if (ret >= 0)
         {
-            string init = ret.Groups["init"].Value.Trim();
-            if (byVar.TryGetValue(init, out ExtractedState? start)) machine.Initial = start.Id;
-            else if (init.Contains("switch"))
+            int open = ret + "return new MonsterMoveStateMachine(".Length;
+            int close = MatchingParen(body, open);
+            string args = close > open ? body[open..close] : "";
+            string init = SecondArgument(args);
+            if (init.Contains("switch"))
                 machine.StarterSwitch = SwitchArm.Matches(init).Select(a => a.Groups["var"].Value).Where(byVar.ContainsKey).Select(v => byVar[v].Id).ToList();
+            else
+            {
+                (string? initial, string? alt) = ResolveInitial(init, body, byVar, 0);
+                machine.Initial = initial;
+                machine.AltInitial = alt;
+            }
         }
         return machine;
+    }
+
+    /// <summary>The text after the first top-level comma of a call's argument list.</summary>
+    private static string SecondArgument(string args)
+    {
+        int depth = 0;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == '(' || args[i] == '<') depth++;
+            else if (args[i] == ')' || args[i] == '>') depth--;
+            else if (args[i] == ',' && depth == 0) return args[(i + 1)..].Trim();
+        }
+        return "";
+    }
+
+    private static readonly Regex StateCast = new(@"\(\s*(?:MonsterState|MoveState|RandomBranchState|ConditionalBranchState)\s*\)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Resolves a starting-state expression: a variable, an alias declared earlier ("MoveState initialState = ..."),
+    /// or a ternary "flag ? a : b", where b is the default and a the alternative used when the flag is set.
+    /// </summary>
+    private static (string? Initial, string? Alt) ResolveInitial(string expr, string body, Dictionary<string, ExtractedState> byVar, int depth)
+    {
+        expr = StateCast.Replace(expr, "").Trim();
+        while (expr.StartsWith('(') && expr.EndsWith(')') && MatchingParen(expr, 1) == expr.Length - 1) expr = expr[1..^1].Trim();
+
+        int q = expr.IndexOf('?');
+        if (q >= 0)
+        {
+            int colon = expr.IndexOf(':', q);
+            if (colon < 0) return (null, null);
+            string? whenSet = ResolveInitial(expr[(q + 1)..colon], body, byVar, depth + 1).Initial;
+            string? byDefault = ResolveInitial(expr[(colon + 1)..], body, byVar, depth + 1).Initial;
+            return (byDefault, whenSet);
+        }
+        if (byVar.TryGetValue(expr, out ExtractedState? direct)) return (direct.Id, null);
+        if (depth < 3)
+        {
+            Match alias = Regex.Match(body, @"\b" + Regex.Escape(expr) + @"\s*=\s*(?<rhs>[^;]+);");
+            if (alias.Success) return ResolveInitial(alias.Groups["rhs"].Value, body, byVar, depth + 1);
+        }
+        return (null, null);
     }
 }

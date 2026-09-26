@@ -177,3 +177,57 @@ public class CombatRulesTests
         Assert.True(wins >= 45, $"expected the bot to win nearly every easy fight, won {wins}/50");
     }
 }
+
+public class MonsterRuleTests
+{
+    private static MonsterDef RitualCultist() => new()
+    {
+        Id = "CULT", HpMin = 500, HpMax = 500, HpMinTough = 500, HpMaxTough = 500,
+        Moves =
+        {
+            ["INCANTATION"] = new MoveDef { Id = "INCANTATION", Intent = "Buff", Powers = new[] { new MovePower(PowerKind.Ritual, OnPlayer: false, 3) } },
+            ["STRIKE"] = new MoveDef { Id = "STRIKE", Intent = "Attack", Damage = 6, DamageDeadly = 6 },
+        },
+        States =
+        {
+            ["INCANTATION_MOVE"] = new StateDef { Id = "INCANTATION_MOVE", Kind = StateKind.Move, MoveId = "INCANTATION", Next = "STRIKE_MOVE" },
+            ["STRIKE_MOVE"] = new StateDef { Id = "STRIKE_MOVE", Kind = StateKind.Move, MoveId = "STRIKE", Next = "STRIKE_MOVE" },
+        },
+        InitialState = "INCANTATION_MOVE",
+    };
+
+    [Fact]
+    public void RitualSkipsItsFirstTriggerThenGrowsStrengthEveryTurn()
+    {
+        var defend = new CardDef { Id = "DEFEND", Kind = CardKind.Skill, Cost = 1, Effects = new[] { new Effect(EffectOp.Block, 5) } };
+        var c = new Combat(Enumerable.Repeat(defend, 5), 80, 80, new[] { RitualCultist() }, 0, 1);
+        Enemy e = c.Enemies[0];
+
+        c.EndPlayerTurn();                                   // Incantation: gains Ritual, no Strength yet
+        Assert.Equal(3, e.Powers[(int)PowerKind.Ritual]);
+        Assert.Equal(0, e.Powers[(int)PowerKind.Strength]);
+
+        c.EndPlayerTurn();                                   // first attack (no bonus), then Ritual triggers
+        Assert.Equal(80 - 6, c.Hp);
+        Assert.Equal(3, e.Powers[(int)PowerKind.Strength]);
+
+        c.EndPlayerTurn();                                   // attacks for 6 + 3
+        Assert.Equal(80 - 6 - 9, c.Hp);
+        Assert.Equal(6, e.Powers[(int)PowerKind.Strength]);
+    }
+
+    [Fact]
+    public void AnAlternativeStartFlagChangesTheFirstMove()
+    {
+        MonsterDef def = RitualCultist();
+        var withAlt = new MonsterDef
+        {
+            Id = def.Id, HpMin = 500, HpMax = 500, HpMinTough = 500, HpMaxTough = 500,
+            Moves = def.Moves, States = def.States, InitialState = "INCANTATION_MOVE", AltInitialState = "STRIKE_MOVE",
+        };
+        var defend = new CardDef { Id = "DEFEND", Kind = CardKind.Skill, Cost = 1 };
+        var c = new Combat(Enumerable.Repeat(defend, 5), 80, 80, new[] { withAlt, withAlt }, 0, 1, altStarts: new[] { 1 });
+        Assert.Equal("INCANTATION", c.Enemies[0].Move!.Id);
+        Assert.Equal("STRIKE", c.Enemies[1].Move!.Id);
+    }
+}

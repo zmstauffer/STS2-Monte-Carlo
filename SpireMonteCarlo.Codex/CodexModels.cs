@@ -184,3 +184,30 @@ public sealed class CodexCharacter
     public List<string> StartingDeck { get; set; } = new();
     public List<string> StartingRelics { get; set; } = new();
 }
+
+public sealed class CodexCharacterStat
+{
+    public string Character { get; set; } = "";
+    public int Total { get; set; }
+    public int Fatal { get; set; }
+    public double AvgDamage { get; set; }
+    public double AvgTurns { get; set; }
+}
+
+/// <summary>Real-player results for one encounter from /runs/encounter-stats: fights, deaths, average HP lost and turns.</summary>
+public sealed class CodexEncounterStat
+{
+    public string EncounterId { get; set; } = "";
+    public int Act { get; set; }
+    public string RoomType { get; set; } = "";
+    public int Total { get; set; }
+    public int Fatal { get; set; }
+    public double AvgDamage { get; set; }
+    public double AvgTurns { get; set; }
+    public List<CodexCharacterStat> Characters { get; set; } = new();
+}
+
+public sealed class CodexEncounterStats
+{
+    public List<CodexEncounterStat> Encounters { get; set; } = new();
+}

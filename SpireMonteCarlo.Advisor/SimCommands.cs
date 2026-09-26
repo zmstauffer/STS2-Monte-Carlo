@@ -14,6 +14,7 @@ public static class SimCommands
         {
             case "extract": return Extract(args.Skip(1).ToArray());
             case "fight": return Fight(args.Skip(1).ToArray());
+            case "calibrate": return Calibrate(args.Skip(1).ToArray());
             case "encounters": return ListEncounters(args.Skip(1).ToArray());
             default:
                 Console.Error.WriteLine("Usage: advisor sim <extract [--decompiled <dir>] | encounters [act] | fight --encounter <ID> [--n N] [--ascension A] [--hp N] [--deck SPEC] [--seed S]>");
@@ -61,6 +62,10 @@ public static class SimCommands
             var missing = machine.States.Where(s => s.Kind == "move" && (s.MoveId == null || !cm.Moves.Any(mv => mv.Id == s.MoveId))).Select(s => s.Id).ToList();
             if (missing.Count > 0) Console.WriteLine($"  {id}: moves not in Codex: {string.Join(", ", missing)}");
         }
+        foreach ((string id, ExtractedMachine machine) in machines.OrderBy(kv => kv.Key))
+            if (machine.Initial == null && machine.StarterSwitch.Count == 0)
+                Console.WriteLine($"  {id}: starting state not resolved");
+
         // A move state with no follow-up in a multi-state machine usually means the parser missed a link.
         foreach ((string id, ExtractedMachine machine) in machines.OrderBy(kv => kv.Key))
         {
@@ -93,6 +98,79 @@ public static class SimCommands
         return 0;
     }
 
+    /// <summary>Sim versus real-player Ironclad results for every Act 1 encounter, to spot engine or data bugs.</summary>
+    private static int Calibrate(string[] args)
+    {
+        var cache = new CodexCache();
+        SimData? data = Load();
+        if (data == null) return 1;
+        int n = int.Parse(Option(args, "--n") ?? "1000");
+        int ascension = int.Parse(Option(args, "--ascension") ?? "10");
+        var stats = cache.LoadEncounterStats();
+        CodexCharacter ironclad = data.Characters["IRONCLAD"];
+        List<CardDef> deck = data.ParseDeck(string.Join(",", ironclad.StartingDeck.Select(DecompiledExtractor.ToSnakeCase)));
+
+        var rows = new List<(EncounterDef e, double simDamage, double simWin, double simTurns, double realDamage, double realFatal, double realTurns, int realFights)>();
+        foreach (EncounterDef e in data.Encounters.All.Where(e => (e.Act ?? "").StartsWith("Act 1") && stats.ContainsKey(e.Id)).OrderBy(e => e.RoomType).ThenBy(e => e.Id))
+        {
+            CodexCharacterStat? real = stats[e.Id].Characters.FirstOrDefault(c => c.Character == "IRONCLAD");
+            if (real == null || real.Total == 0) continue;
+            var results = new FightResult[n];
+            Parallel.For(0, n, i =>
+            {
+                ulong seed = SimRng.Mix(7, (ulong)i);
+                string[] lineup = e.Generate(new SimRng(SimRng.Mix(seed, 1)));
+                results[i] = FightSimulator.Run(deck, ironclad.StartingHp, ironclad.StartingHp, lineup.Select(data.Monsters.Get), ascension, seed, altStarts: e.AltStarts);
+            });
+            rows.Add((e, results.Average(r => r.HpLost), results.Count(r => r.Won) / (double)n, results.Average(r => r.Turns),
+                real.AvgDamage, real.Fatal / (double)real.Total, real.AvgTurns, real.Total));
+        }
+
+        Console.WriteLine($"Ironclad starter deck at A{ascension}, {n} fights each, vs real Ironclad players (mixed decks and ascensions)");
+        Console.WriteLine($"{"encounter",-32} {"room",-8} {"sim dmg",8} {"real dmg",9} {"sim turns",10} {"real turns",11} {"sim win%",9} {"real fatal%",12}");
+        foreach (var r in rows)
+            Console.WriteLine($"{r.e.Id,-32} {r.e.RoomType,-8} {r.simDamage,8:F1} {r.realDamage,9:F1} {r.simTurns,10:F1} {r.realTurns,11:F1} {100 * r.simWin,9:F1} {100 * r.realFatal,12:F2}{(r.e.Approximate ? "  [lineup guessed]" : "")}");
+
+        Console.WriteLine();
+        Console.WriteLine($"Rank correlation (Spearman) of average damage, all Act 1: {Spearman(rows.Select(r => r.simDamage).ToArray(), rows.Select(r => r.realDamage).ToArray()):F2}");
+        foreach (string room in new[] { "Monster", "Elite", "Boss" })
+        {
+            var subset = rows.Where(r => r.e.RoomType == room).ToList();
+            if (subset.Count >= 3)
+                Console.WriteLine($"  {room,-8} n={subset.Count,2}  damage {Spearman(subset.Select(r => r.simDamage).ToArray(), subset.Select(r => r.realDamage).ToArray()):F2}   turns {Spearman(subset.Select(r => r.simTurns).ToArray(), subset.Select(r => r.realTurns).ToArray()):F2}");
+        }
+        return 0;
+    }
+
+    private static double Spearman(double[] a, double[] b)
+    {
+        double[] ra = Ranks(a), rb = Ranks(b);
+        double ma = ra.Average(), mb = rb.Average();
+        double cov = 0, va = 0, vb = 0;
+        for (int i = 0; i < ra.Length; i++)
+        {
+            cov += (ra[i] - ma) * (rb[i] - mb);
+            va += (ra[i] - ma) * (ra[i] - ma);
+            vb += (rb[i] - mb) * (rb[i] - mb);
+        }
+        return va == 0 || vb == 0 ? 0 : cov / Math.Sqrt(va * vb);
+    }
+
+    private static double[] Ranks(double[] values)
+    {
+        int[] order = Enumerable.Range(0, values.Length).OrderBy(i => values[i]).ToArray();
+        var ranks = new double[values.Length];
+        for (int i = 0; i < order.Length;)
+        {
+            int j = i;
+            while (j + 1 < order.Length && values[order[j + 1]] == values[order[i]]) j++;
+            double rank = (i + j) / 2.0;
+            for (int k = i; k <= j; k++) ranks[order[k]] = rank;
+            i = j + 1;
+        }
+        return ranks;
+    }
+
     private static int Fight(string[] args)
     {
         SimData? data = Load();
@@ -113,6 +191,15 @@ public static class SimCommands
         List<CardDef> deck = data.ParseDeck(deckSpec);
         EncounterDef encounter = data.Encounters.Get(encounterId);
 
+        if (args.Contains("--trace"))
+        {
+            ulong traceSeed = SimRng.Mix(seed, 0);
+            string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
+            Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
+            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts);
+            return 0;
+        }
+
         var sw = Stopwatch.StartNew();
         var results = new FightResult[n];
         var monsterIds = new string[n][];
@@ -121,7 +208,7 @@ public static class SimCommands
             ulong fightSeed = SimRng.Mix(seed, (ulong)i);
             string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
             monsterIds[i] = lineup;
-            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed);
+            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts);
         });
         sw.Stop();
 

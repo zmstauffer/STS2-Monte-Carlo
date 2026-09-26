@@ -19,6 +19,9 @@ public sealed class EncounterDef
     /// <summary>When set, no monster id repeats within a lineup (e.g. three different Ruby Raiders).</summary>
     public bool Distinct { get; init; }
 
+    /// <summary>Lineup positions whose monster starts with its alternative first move (the game sets a flag on that one monster).</summary>
+    public int[] AltStarts { get; init; } = Array.Empty<int>();
+
     /// <summary>The exact lineup wasn't available, so it was guessed from the Codex monster pool.</summary>
     public bool Approximate { get; init; }
 
@@ -66,6 +69,13 @@ public sealed class EncounterLibrary
         }, true),
     };
 
+    /// <summary>Encounters that flag one monster to start on its alternative move, and which lineup position it is.</summary>
+    private static readonly Dictionary<string, int[]> AltStartSlots = new()
+    {
+        ["INKLETS_NORMAL"] = new[] { 1 },      // the middle Inklet
+        ["THE_KIN_BOSS"] = new[] { 0 },        // the first Kin Follower starts with its dance
+    };
+
     private readonly Dictionary<string, EncounterDef> _encounters = new();
 
     public EncounterLibrary(IEnumerable<CodexEncounter> codexEncounters, DecompiledExtractor.EncounterExtraction? lineups)
@@ -88,6 +98,7 @@ public sealed class EncounterLibrary
             {
                 Id = e.Id, RoomType = e.RoomType, Act = e.Act, IsWeak = e.IsWeak,
                 Variants = variants, Distinct = distinct, Approximate = approximate,
+                AltStarts = AltStartSlots.GetValueOrDefault(e.Id) ?? Array.Empty<int>(),
             };
         }
     }
