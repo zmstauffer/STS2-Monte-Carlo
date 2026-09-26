@@ -60,7 +60,7 @@ public static class TuneCommand
         for (int round = 0; round < rounds; round++)
         {
             bool improved = false;
-            foreach (string name in BotTuning.Names.Where(n => n is not ("Leaf" or "Horizon")))
+            foreach (string name in BotTuning.Names.Where(n => n is not ("Leaf" or "Horizon" or "Finalists")))
             {
                 foreach (double factor in factors)
                 {

@@ -31,7 +31,7 @@ public sealed partial class Combat
 
     public int Hp { get; private set; }
     public int MaxHp { get; private set; }
-    public int Block { get; private set; }
+    public int Block { get; internal set; }
     public int Energy { get; private set; }
     public int MaxEnergy { get; }
     public int Turn { get; private set; }
@@ -249,7 +249,8 @@ public sealed partial class Combat
 
     // ---- turn flow ------------------------------------------------------------------------------------------
 
-    public void EndPlayerTurn()
+    /// <param name="startNextTurn">False stops after the enemies have moved (a planner judging a turn does not need the next hand drawn).</param>
+    public void EndPlayerTurn(bool startNextTurn = true)
     {
         if (Result != CombatResult.Ongoing) return;
 
@@ -316,7 +317,7 @@ public sealed partial class Combat
         if (Result == CombatResult.Ongoing)
         {
             if (Turn >= TurnLimit) { Result = CombatResult.Lost; return; }
-            StartPlayerTurn();
+            if (startNextTurn) StartPlayerTurn();
         }
     }
 

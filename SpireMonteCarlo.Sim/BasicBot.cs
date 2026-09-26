@@ -69,15 +69,31 @@ public sealed class BasicBot
             _salt = 0xC0FFEEUL + (ulong)root.Turn * 7919UL;
         }
 
-        public void Run() => Visit(_root, 0, new List<BotAction>(), 0, 0);
+        private readonly List<(List<BotAction> Path, Combat State, double Cheap)> _visited = new();
+
+        public void Run()
+        {
+            Visit(_root, 0, new List<BotAction>(), 0, 0);
+            if (_bot.Tuning.Leaf <= 0) return;
+            // Every plan was judged cheaply (the enemy phase once); the few best are judged again looking several turns ahead.
+            BestScore = double.NegativeInfinity;
+            foreach (var (path, state, _) in _visited.OrderByDescending(v => v.Cheap).Take((int)_bot.Tuning.Finalists))
+            {
+                double deep = _bot.LeafValue(_root, state, _salt, deep: true) - path.Count(a => a.IsPotion) * PotionReserve;
+                if (deep > BestScore) { BestScore = deep; Best = path; BestFinal = state; }
+            }
+        }
 
         private void Visit(Combat state, double score, List<BotAction> path, int depth, ulong mask)
         {
-            double judged = _bot.Tuning.Leaf > 0 ? _bot.LeafValue(_root, state, _salt) - path.Count(a => a.IsPotion) * PotionReserve : score;
-            if (path.Count == 0 && _bot.Tuning.Leaf > 0) BestScore = double.NegativeInfinity;
-            if (judged > BestScore)
+            if (_bot.Tuning.Leaf > 0)
             {
-                BestScore = judged;
+                double cheap = _bot.LeafValue(_root, state, _salt, deep: false) - path.Count(a => a.IsPotion) * PotionReserve;
+                _visited.Add((new List<BotAction>(path), state, cheap));
+            }
+            else if (score > BestScore)
+            {
+                BestScore = score;
                 Best = new List<BotAction>(path);
                 BestFinal = state;
             }
@@ -120,7 +136,7 @@ public sealed class BasicBot
     }
 
     /// <summary>Leaf mode: what stopping the turn in <paramref name="state"/> is worth. Plays out the enemy phase on a copy, then prices what is left: the HP lost now, plus each enemy's remaining HP at the rate its attacks cost us per point of damage we can deal.</summary>
-    private double LeafValue(Combat root, Combat state, ulong salt)
+    private double LeafValue(Combat root, Combat state, ulong salt, bool deep)
     {
         double powers = 0;
         foreach (PowerKind kind in Enum.GetValues<PowerKind>())
@@ -131,18 +147,22 @@ public sealed class BasicBot
         if (state.Result == CombatResult.Won) return powers + 50;
         Combat c = state.Clone(salt);
         int hpBefore = c.Hp;
-        c.EndPlayerTurn();
+        c.EndPlayerTurn(startNextTurn: false);
         if (c.Result == CombatResult.Lost) return -100000;
         double lost = hpBefore - c.Hp;
         if (c.Result == CombatResult.Won) return powers + 50 - lost;
         // How hard the enemies will hit over the next few turns if we did nothing: this sees Ritual-style growth and charge-up turns.
-        int horizon = (int)Math.Max(1, Tuning.Horizon);
+        int horizon = deep ? (int)Math.Max(1, Tuning.Horizon) : 1;
         var perEnemy = new Dictionary<int, double>();
         foreach (Enemy e in c.Enemies) perEnemy[e.Index] = c.IntentDamage(e);
         if (horizon > 1)
         {
             Combat ahead = c.Clone(salt + 1);
-            for (int k = 1; k < horizon && ahead.Result == CombatResult.Ongoing; k++) ahead.EndPlayerTurn();
+            for (int k = 1; k < horizon && ahead.Result == CombatResult.Ongoing; k++)
+            {
+                if (ahead.PlayerPowers[(int)PowerKind.Barricade] == 0) ahead.Block = 0;   // the next turn would have cleared it
+                ahead.EndPlayerTurn(startNextTurn: false);
+            }
             foreach (Enemy e in ahead.Enemies)
                 if (e.DamageDealt > 0) perEnemy[e.Index] = perEnemy.GetValueOrDefault(e.Index) + e.DamageDealt;
         }
@@ -175,7 +195,10 @@ public sealed class BasicBot
             cumulative += hp;
             future += threat * cumulative / Tuning.Dpt;
         }
-        return powers - lost - future - Tuning.Progress * progress;
+        // The Insatiable's Sandpit ends the run when its countdown reaches 0; every point of margin is worth a lot when it is short.
+        int sand = c.PlayerPowers[(int)PowerKind.Sandpit];
+        double sandpit = sand <= 0 ? 0 : 300 * Math.Pow(0.35, sand - 1);
+        return powers - lost - future - Tuning.Progress * progress - sandpit;
     }
 
     /// <summary>Carries out one planned action on a combat (a copy while planning, the real one when playing). False if it can't be done.</summary>

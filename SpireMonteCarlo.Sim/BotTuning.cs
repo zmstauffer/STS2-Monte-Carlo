@@ -35,6 +35,8 @@ public sealed class BotTuning
     public double BaseThreat = 0.6;
     /// <summary>Leaf mode: value of each point of enemy HP removed even when nothing it does hurts us, so plans still push the fight along.</summary>
     public double Progress = 0.2;
+    /// <summary>Leaf mode: how many of the best plans (by the cheap one-turn judgement) are judged again looking several turns ahead.</summary>
+    public double Finalists = 4;
     /// <summary>Leaf mode: weight on the value of powers gained this turn.</summary>
     public double PowerGain = 1.0;
 
