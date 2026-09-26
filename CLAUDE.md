@@ -96,6 +96,15 @@ The Codex cache (`SpireMonteCarlo.Codex`, `advisor codex update|status|check`) l
 - Skip has no Elo row. From `offered`/`picked` (assuming 3 cards per screen) players skip roughly 35–38% of card reward screens for every character in both brackets. Starting rule: treat Skip as a fourth option whose Bradley-Terry weight is set so its probability matches that rate; revisit once there's a way to tell when skipping is right for a given deck.
 - `damage`/`block` in the export are sometimes strings like `"+3"` (scaling), so `CodexCard` keeps the raw JSON and exposes numeric accessors.
 
+Simulator decisions (owner, from the design discussion):
+
+- First milestone character is Ironclad; default Elo bracket is `a10`.
+- The combat bot should be a middle ground: smarter than "highest damage first" (it weighs incoming damage, block, energy efficiency, and card synergies at a basic level) but not a search-based player. Only comparisons between options matter, so calibrate it against Codex encounter stats rather than chase absolute accuracy.
+- Card-reward skips are not a flat rate. The chance of skipping should rise as the deck fills and as a card fits the deck worse: few skips early, more later. The Codex per-act pick rates (`pick_rate_by_act`) and the ~35–38% overall skip rate are calibration targets, not the rule itself.
+- Rest sites: rest below ~50% HP, otherwise upgrade.
+- Speed matters: the simulation must run many fights per decision, so it needs to use all CPU cores.
+- Engine: the game's own combat code can't run outside Godot (see `spikes/headless-combat/README.md`). Remaining choice is a lean own engine (data-driven from Codex card/monster data) versus a second headless game process.
+
 Next: the first simulator milestone (one character, Act 1, card rewards). Still to define later: the IPC between the mod and the app.
 
 ## Notes on the original codebase
