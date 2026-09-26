@@ -120,7 +120,7 @@ public sealed partial class Combat
         else Energy -= cost;
         if (card.Kind == CardKind.Attack && PlayerPowers[(int)PowerKind.FreeAttack] > 0) PlayerPowers[(int)PowerKind.FreeAttack]--;
 
-        Resolve(card, ResolveTarget(targetIndex), x, forceExhaust: false);
+        Resolve(card, ResolveTarget(targetIndex), x, forceExhaust: false, costPaid: cost == CardDef.XCost ? x : cost);
     }
 
     /// <summary>A card played by an effect rather than the player: free, against a random enemy if it needs one.</summary>
@@ -151,7 +151,7 @@ public sealed partial class Combat
         return Enemies.FindIndex(Targetable);
     }
 
-    private void Resolve(CardDef card, int target, int x, bool forceExhaust)
+    private void Resolve(CardDef card, int target, int x, bool forceExhaust, int costPaid = 0)
     {
         _cardsInPlay++;
         try
@@ -159,6 +159,7 @@ public sealed partial class Combat
             if (card.Kind == CardKind.Attack)
             {
                 _attacksPlayedThisTurn++;
+                RelicBeforeAttack();
                 foreach (var pile in new[] { DrawPile, Hand, DiscardPile })
                     foreach (CardDef other in pile)
                         if (other.CheaperPerAttackPlayed) other.CostReductionThisTurn++;
@@ -179,6 +180,7 @@ public sealed partial class Combat
             foreach (Enemy e in Enemies)
                 if (e.Powers[(int)PowerKind.Slow] > 0) e.SlowCards++;
             if (card.Kind == CardKind.Attack && PlayerPowers[(int)PowerKind.Rage] > 0) GainBlockRaw(PlayerPowers[(int)PowerKind.Rage]);
+            RelicAfterCard(card, costPaid);
         }
         finally
         {
@@ -224,7 +226,7 @@ public sealed partial class Combat
                 {
                     bool killed = false;
                     for (int h = 0; h < hits && target != null && Targetable(target); h++)
-                        killed |= DamageEnemy(target, PlayerAttackDamage(amount, target), fromCard: true);
+                        killed |= DamageEnemy(target, PlayerAttackDamage(amount, target, card), fromCard: true);
                     ctx.LastKilled = killed;
                     ctx.LastTarget = target;
                     break;
@@ -232,7 +234,7 @@ public sealed partial class Combat
             case EffectOp.DamageAll:
                 for (int h = 0; h < hits; h++)
                     foreach (Enemy e in Enemies.ToList())
-                        if (Targetable(e)) DamageEnemy(e, PlayerAttackDamage(amount, e), fromCard: true);
+                        if (Targetable(e)) DamageEnemy(e, PlayerAttackDamage(amount, e, card), fromCard: true);
                 break;
             case EffectOp.DamageRandom:
                 for (int h = 0; h < hits; h++)
@@ -240,7 +242,7 @@ public sealed partial class Combat
                     var alive = Enemies.Where(Targetable).ToList();
                     if (alive.Count == 0) break;
                     Enemy e = alive[Rng.Next(alive.Count)];
-                    DamageEnemy(e, PlayerAttackDamage(amount, e), fromCard: true);
+                    DamageEnemy(e, PlayerAttackDamage(amount, e, card), fromCard: true);
                 }
                 break;
             case EffectOp.Block:
@@ -405,6 +407,9 @@ public sealed partial class Combat
             case PowerKind.Barricade or PowerKind.Corruption or PowerKind.Hellraiser:
                 PlayerPowers[(int)kind] = 1;   // these don't stack
                 break;
+            case PowerKind.Strength:
+                PlayerPowers[(int)kind] += RelicStrengthGain(amount);
+                break;
             default:
                 PlayerPowers[(int)kind] += amount;
                 break;
@@ -508,6 +513,7 @@ public sealed partial class Combat
             else DrawCards(PlayerPowers[(int)PowerKind.DarkEmbrace]);
         }
         if (card.EnergyWhenExhausted > 0) Energy += card.EnergyWhenExhausted;
+        RelicOnExhaust();
     }
 }
 

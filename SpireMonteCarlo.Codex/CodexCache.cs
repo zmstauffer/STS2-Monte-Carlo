@@ -160,6 +160,9 @@ public sealed class CodexCache
         File.WriteAllText(Path.Combine(dir, "encounter_lineups.json"), JsonSerializer.Serialize(extraction, Json));
     }
 
+    public IReadOnlyList<CodexRelic> LoadRelics() =>
+        Read<List<CodexRelic>>(Path.Combine("export", "relics.json"));
+
     public IReadOnlyDictionary<string, CodexCharacter> LoadCharacters() =>
         Read<List<CodexCharacter>>(Path.Combine("export", "characters.json")).ToDictionary(c => c.Id, StringComparer.OrdinalIgnoreCase);
 

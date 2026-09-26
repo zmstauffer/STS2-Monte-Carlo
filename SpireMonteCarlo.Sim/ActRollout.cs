@@ -14,7 +14,6 @@ public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int Figh
 /// </summary>
 public sealed class ActRollout
 {
-    private const int BurningBloodHeal = 6;
     private const float MonsterBase = 0.1f, TreasureBase = 0.02f, ShopBase = 0.03f;
     private const float PotionBaseOdds = 0.4f;
     private const int PotionSlots = 3;
@@ -32,13 +31,13 @@ public sealed class ActRollout
     /// </summary>
     public double PlayerHpScale { get; init; } = CalibratedPlayerHpScale;
 
-    // Re-fit after the card recipes, whole-turn planning, and potions went in: 3.0 gives ~54% Act 1 survival, 3.25 ~64%
-    // (real ~65%), 3.5 more but elites become nearly harmless. Bosses stay over-lethal at every value (Lagavulin Matriarch,
-    // The Kin). Still unmodelled: elite relics, the Ancient boon, shops, and events; they are likely why this is still ~3x.
-    public const double CalibratedPlayerHpScale = 3.25;
+    // Re-fit after relics went in (before them: 3.25): 2.25 gives ~55% Act 1 survival, 2.4 ~62% with per-elite fatal rates
+    // near the real ones, 2.5 ~70% (real ~65%). Bosses are still off: Lagavulin Matriarch (~44% vs 17% real), The Kin and
+    // Vantom too lethal, Waterfall Giant too easy. Still unmodelled: the Ancient boon, shops, events, and most rare relics.
+    public const double CalibratedPlayerHpScale = 2.4;
     private readonly RewardPool _pool;
     private readonly int _ascension;
-    private readonly bool _burningBlood;
+    private readonly RelicPool _relicPool;
     private readonly string[] _weakPool, _normalPool, _elitePool, _bossPool;
 
     public ActRollout(SimData data, RunSnapshot snapshot)
@@ -47,7 +46,7 @@ public sealed class ActRollout
         _snap = snapshot;
         _ascension = snapshot.Run.Ascension;
         _pool = data.PoolFor(snapshot.Run.Character);
-        _burningBlood = snapshot.Relics.Contains("BURNING_BLOOD");
+        _relicPool = data.RelicPoolFor(snapshot.Run.Character);
         _points = (snapshot.Map ?? throw new ArgumentException("The snapshot has no map, so there is nothing to walk.")).Points
             .ToDictionary(p => new MapCoordinate(p.Col, p.Row));
         // Snapshots taken before the mod listed the boss node still name its coordinate.
@@ -93,6 +92,43 @@ public sealed class ActRollout
 
         var potions = _snap.Potions.Select(p => PotionLibrary.Find(p.Id)).OfType<PotionDef>().ToList();
         float potionOdds = PotionBaseOdds;
+        int potionSlots = PotionSlots;
+
+        var owned = new HashSet<string>(_snap.Relics);
+        var relics = _snap.Relics.Select(RelicRules.Parse).Where(k => k != RelicKind.Unknown).ToList();
+        bool Own(RelicKind k) => relics.Contains(k);
+        int Scaled(int amount) => (int)Math.Round(amount * PlayerHpScale);
+
+        void GainMaxHp(int amount)
+        {
+            int gain = Scaled(amount);
+            maxHp += gain; hp += gain;
+        }
+
+        void UpgradeRandom(CardKind kind, int count, SimRng rng)
+        {
+            var candidates = Enumerable.Range(0, deck.Count).Where(i => !deck[i].Upgraded && deck[i].Kind == kind && deck[i].UpgradedForm != null).ToList();
+            rng.Shuffle(candidates);
+            foreach (int i in candidates.Take(count)) deck[i] = _data.Cards.Get(deck[i].Id, true);
+        }
+
+        // A relic found in an elite fight or a chest. Relics the simulator doesn't model are still used up but do nothing.
+        void Acquire(string? id, SimRng rng)
+        {
+            if (id == null || !owned.Add(id)) return;
+            RelicKind kind = RelicRules.Parse(id);
+            if (kind == RelicKind.Unknown) return;
+            relics.Add(kind);
+            switch (kind)
+            {
+                case RelicKind.Strawberry: GainMaxHp(7); break;
+                case RelicKind.Pear: GainMaxHp(10); break;
+                case RelicKind.Mango: GainMaxHp(14); break;
+                case RelicKind.PotionBelt: potionSlots += 2; break;
+                case RelicKind.WarPaint: UpgradeRandom(CardKind.Skill, 2, rng); break;
+                case RelicKind.Whetstone: UpgradeRandom(CardKind.Attack, 2, rng); break;
+            }
+        }
 
         // Potion drops follow PotionRewardOdds: the chance falls 10% after a drop and rises 10% after none.
         void RollPotionDrop(SimRng rng, bool elite)
@@ -108,7 +144,7 @@ public sealed class ActRollout
                 int gain = (int)Math.Round(5 * PlayerHpScale);
                 maxHp += gain; hp += gain;
             }
-            else if (potions.Count < PotionSlots) potions.Add(found);
+            else if (potions.Count < potionSlots) potions.Add(found);
         }
 
         bool Fight(string encounterId, RewardKind? reward)
@@ -123,14 +159,19 @@ public sealed class ActRollout
 
             int hpBefore = hp;
             int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
-            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes);
+            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes, relics: relics, hpScale: PlayerHpScale);
             log.Add(new FightLogEntry(encounterId, Real(hpBefore), result.Won ? Real(result.HpAfter) : 0, deck.Count));
             if (!result.Won) { diedTo = encounterId; hp = 0; return false; }
 
             won++;
             potions = result.PotionsLeft?.ToList() ?? potions;
-            hp = Math.Min(maxHp, result.HpAfter + (_burningBlood ? (int)Math.Round(BurningBloodHeal * PlayerHpScale) : 0));
+            hp = Math.Min(maxHp, result.HpAfter);   // Burning Blood and Meat on the Bone already healed inside the combat
             if (reward is RewardKind dropKind) RollPotionDrop(new SimRng(SimRng.Mix(fightSeed, 0x9071)), dropKind == RewardKind.Elite);
+            if (reward == RewardKind.Elite)
+            {
+                var relicRng = new SimRng(SimRng.Mix(fightSeed, 0x2E11C));
+                Acquire(_relicPool.Roll(relicRng, owned), relicRng);
+            }
             if (reward is RewardKind kind)
             {
                 var rewardRng = new SimRng(SimRng.Mix(fightSeed, 0xCA2D));
@@ -152,6 +193,7 @@ public sealed class ActRollout
             if (type == "Unknown")
             {
                 type = RollUnknown(ref mOdds, ref tOdds, ref sOdds, pathRng);
+                if (Own(RelicKind.Planisphere)) hp = Math.Min(maxHp, hp + Scaled(5));
             }
 
             switch (type)
@@ -163,8 +205,12 @@ public sealed class ActRollout
                     if (!Fight(NextOf(elites, ref eliteDrawn, () => Sample(_elitePool, pathRng)), RewardKind.Elite)) return Result(false);
                     break;
                 case "RestSite":
-                    if (hp < 0.5 * maxHp) hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp));
+                    if (Own(RelicKind.EternalFeather)) hp = Math.Min(maxHp, hp + Scaled(3 * (deck.Count / 5)));
+                    if (hp < 0.5 * maxHp) hp = Math.Min(maxHp, hp + (int)(0.3 * maxHp) + (Own(RelicKind.RegalPillow) ? Scaled(15) : 0));
                     else UpgradeBest(deck);
+                    break;
+                case "Treasure":
+                    Acquire(_relicPool.Roll(pathRng, owned), pathRng);
                     break;
                 case "Boss":
                     foreach (string boss in bosses)

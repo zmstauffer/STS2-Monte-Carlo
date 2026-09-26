@@ -199,6 +199,11 @@ public static class SimCommands
         Console.WriteLine($"Ironclad, Act 1 from the start, A{ascension}, {n} rollouts: survive {100.0 * survived / n:F1}%, mean HP left when surviving {results.Where(r => r.Survived).DefaultIfEmpty().Average(r => r?.HpEnd ?? 0):F0}");
 
         var fights = results.SelectMany(r => r.Encounters).GroupBy(e => e).ToDictionary(g => g.Key, g => g.Count());
+        double PerRun(string room) => fights.Where(kv => data.Encounters.Contains(kv.Key) && data.Encounters.Get(kv.Key).RoomType == room).Sum(kv => kv.Value) / (double)n;
+        var realFights = stats.Values.Where(s => s.Act == 1).GroupBy(s => s.RoomType.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.Sum(s => s.Characters.Where(c => c.Character == "IRONCLAD").Sum(c => c.Total)));
+        double realBoss = Math.Max(1, realFights.GetValueOrDefault("boss"));
+        Console.WriteLine($"Fights per run: normal {PerRun("Monster"):F1} (real {realFights.GetValueOrDefault("monster") / realBoss:F1}), elite {PerRun("Elite"):F1} (real {realFights.GetValueOrDefault("elite") / realBoss:F1})");
         var deaths = results.Where(r => r.DiedTo != null).GroupBy(r => r.DiedTo!).ToDictionary(g => g.Key, g => g.Count());
         Console.WriteLine($"{"encounter",-32} {"room",-8} {"fights",7} {"sim fatal%",11} {"real fatal%",12}");
         foreach (var (id, count) in fights.OrderByDescending(kv => kv.Value))
@@ -303,13 +308,15 @@ public static class SimCommands
         var potions = (Option(args, "--potions") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(id => PotionLibrary.Find(id) ?? throw new ArgumentException($"Unknown or unmodelled potion {id}")).ToList();
         int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
+        var relics = (Option(args, "--relics") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => RelicRules.Parse(id) is var k && k != RelicKind.Unknown ? k : throw new ArgumentException($"Unknown or unmodelled relic {id}")).ToList();
 
         if (args.Contains("--trace"))
         {
             ulong traceSeed = SimRng.Mix(seed, 0);
             string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
             Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
-            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes);
+            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics);
             return 0;
         }
 
@@ -321,7 +328,7 @@ public static class SimCommands
             ulong fightSeed = SimRng.Mix(seed, (ulong)i);
             string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
             monsterIds[i] = lineup;
-            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes);
+            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics);
         });
         sw.Stop();
 

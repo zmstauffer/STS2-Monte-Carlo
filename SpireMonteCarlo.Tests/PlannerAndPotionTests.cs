@@ -27,7 +27,7 @@ public class PlannerAndPotionTests
     {
         SimData data = Data!;
         var c = new Combat(Array.Empty<CardDef>(), hp, 80, new[] { Dummy(enemyHp, enemyDamage) }, ascension: 0, seed: 7, services: data.Services,
-            potions: potions.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(id => PotionLibrary.Find(id)!)) { Stakes = stakes };
+            potions: potions.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(id => PotionLibrary.Find(id)!), stakes: stakes);
         c.Hand.AddRange(data.ParseDeck(hand).Select(x => x.Instantiate()));
         return c;
     }

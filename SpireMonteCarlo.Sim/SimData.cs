@@ -27,10 +27,25 @@ public sealed class SimData
         Encounters = new EncounterLibrary(cache.LoadEncounters(), cache.LoadEncounterLineups());
         Characters = cache.LoadCharacters();
         _cardMetrics = cache.LoadMetrics("cards", EloBracket);
+        _relics = cache.LoadRelics();
         Services = new CombatServices(
             id => Cards.Contains(id) ? Cards.Get(id, false) : null,
             id => Monsters.Contains(id) ? Monsters.Get(id) : null,
             Cards.CombatGenerationPool);
+    }
+
+    private readonly Dictionary<string, RelicPool> _relicPools = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IReadOnlyList<CodexRelic> _relics;
+
+    /// <summary>The relics a character can find as elite and chest rewards.</summary>
+    public RelicPool RelicPoolFor(string character)
+    {
+        lock (_relicPools)
+        {
+            if (!_relicPools.TryGetValue(character, out RelicPool? pool))
+                _relicPools[character] = pool = new RelicPool(_relics, character);
+            return pool;
+        }
     }
 
     /// <summary>The cards a character can be offered as rewards, with their Elo.</summary>

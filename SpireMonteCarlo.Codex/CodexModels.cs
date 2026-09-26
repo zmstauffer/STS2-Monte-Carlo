@@ -212,3 +212,12 @@ public sealed class CodexEncounterStats
 {
     public List<CodexEncounterStat> Encounters { get; set; } = new();
 }
+
+/// <summary>A relic from the Codex export: rarity is like "Common Relic"; pool is "shared" or a character id.</summary>
+public sealed class CodexRelic
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Rarity { get; set; } = "";
+    public string Pool { get; set; } = "";
+}

@@ -194,14 +194,14 @@ public sealed class BasicBot
             switch (effect.Op)
             {
                 case EffectOp.Damage when focus != null:
-                    score += DamageValue(combat, focus, amount, hits);
+                    score += DamageValue(combat, focus, amount, hits, card: isCard ? card : null);
                     break;
                 case EffectOp.DamageFlat when focus != null:
                     score += DamageValue(combat, focus, amount, 1, powered: false);
                     break;
                 case EffectOp.DamageAll:
                     foreach (Enemy e in combat.Enemies)
-                        if (e.Alive && !e.Dying) score += DamageValue(combat, e, amount, hits);
+                        if (e.Alive && !e.Dying) score += DamageValue(combat, e, amount, hits, card: isCard ? card : null);
                     break;
                 case EffectOp.DamageAllFlat:
                     foreach (Enemy e in combat.Enemies)
@@ -210,7 +210,7 @@ public sealed class BasicBot
                 case EffectOp.DamageRandom:
                     {
                         var alive = combat.Enemies.Where(e => e.Alive && !e.Dying).ToList();
-                        foreach (Enemy e in alive) score += DamageValue(combat, e, amount, hits) / alive.Count;
+                        foreach (Enemy e in alive) score += DamageValue(combat, e, amount, hits, card: isCard ? card : null) / alive.Count;
                         break;
                     }
                 case EffectOp.Block:
@@ -399,9 +399,9 @@ public sealed class BasicBot
         return lost;
     }
 
-    private static double DamageValue(Combat combat, Enemy enemy, int baseDamage, int hits, bool powered = true)
+    private static double DamageValue(Combat combat, Enemy enemy, int baseDamage, int hits, bool powered = true, CardDef? card = null)
     {
-        int perHit = powered ? combat.PlayerAttackDamage(baseDamage, enemy) : baseDamage;
+        int perHit = powered ? combat.PlayerAttackDamage(baseDamage, enemy, card) : baseDamage;
         int total = perHit * hits;
         int hpDamage = Math.Min(HpLoss(enemy, perHit, hits), enemy.Hp);
         double value = hpDamage + Math.Min(total - hpDamage, enemy.Block) * 0.3;

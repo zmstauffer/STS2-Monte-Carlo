@@ -61,7 +61,7 @@ public sealed partial class Combat
     public List<PotionDef> Potions { get; } = new();
 
     /// <summary>How much the fight matters (0 normal, 1 elite, 2 boss); the bot spends potions more freely when it is higher.</summary>
-    public int Stakes { get; init; }
+    public int Stakes { get; }
 
     /// <summary>A copy of the whole combat as it stands, including its random stream, for trying plays out. <paramref name="salt"/> (non-zero) makes the copy's random draws differ from the real ones.</summary>
     public Combat Clone(ulong salt = 0) => new(this, salt);
@@ -76,6 +76,8 @@ public sealed partial class Combat
         _services = src._services;
         MaxEnergy = src.MaxEnergy;
         Stakes = src.Stakes;
+        HpScale = src.HpScale;
+        CopyRelicState(src);
         Hp = src.Hp; MaxHp = src.MaxHp; Block = src.Block; Energy = src.Energy; Turn = src.Turn;
         Array.Copy(src.PlayerPowers, PlayerPowers, PlayerPowers.Length);
         foreach (CardDef c in src.DrawPile) DrawPile.Add(c.Copy());
@@ -92,9 +94,12 @@ public sealed partial class Combat
 
     public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed,
         int maxEnergy = 3, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, CombatServices? services = null,
-        string character = "ironclad", IEnumerable<PotionDef>? potions = null)
+        string character = "ironclad", IEnumerable<PotionDef>? potions = null, IEnumerable<RelicKind>? relics = null, int stakes = 0, double hpScale = 1.0)
     {
         if (potions != null) Potions.AddRange(potions);
+        SetRelics(relics);
+        Stakes = stakes;
+        HpScale = hpScale;
         Rng = new SimRng(seed);
         Ascension = ascension;
         Character = character;
@@ -164,15 +169,16 @@ public sealed partial class Combat
     }
 
     /// <summary>Damage one attack of <paramref name="baseDamage"/> would deal to <paramref name="target"/> right now (null: ignore the target's powers).</summary>
-    public int PlayerAttackDamage(int baseDamage, Enemy? target)
+    public int PlayerAttackDamage(int baseDamage, Enemy? target, CardDef? card = null)
     {
-        double d = Math.Max(0, baseDamage + PlayerPowers[(int)PowerKind.Strength]);
+        double d = Math.Max(0, baseDamage + PlayerPowers[(int)PowerKind.Strength] + RelicDamageBonus(card));
         if (PlayerPowers[(int)PowerKind.Weak] > 0) d *= 0.75;
         if (target != null)
         {
-            if (target.Powers[(int)PowerKind.Vulnerable] > 0) d *= 1.5 + PlayerPowers[(int)PowerKind.Cruelty] / 100.0;
+            if (target.Powers[(int)PowerKind.Vulnerable] > 0) d *= VulnerableMultiplier + PlayerPowers[(int)PowerKind.Cruelty] / 100.0;
             if (target.Powers[(int)PowerKind.Slow] > 0) d *= 1 + 0.1 * target.SlowCards;
         }
+        if (_penNibActive) d *= 2;
         return (int)Math.Floor(d);
     }
 
@@ -221,7 +227,9 @@ public sealed partial class Combat
         if (Result != CombatResult.Ongoing) return;
 
         // Powers that pay out as the turn ends.
+        bool hadNoBlock = Block == 0;
         GainBlockRaw(PlayerPowers[(int)PowerKind.Plating] + PlayerPowers[(int)PowerKind.Metallicize]);
+        RelicEndOfTurn(hadNoBlock);
 
         // After the player's last card: Stampede and Howl from Beyond play cards on their own.
         for (int i = 0; i < PlayerPowers[(int)PowerKind.Stampede] && Result == CombatResult.Ongoing; i++)
@@ -286,7 +294,7 @@ public sealed partial class Combat
         _cardBlockGainsThisTurn = 0;
         _cardsExhaustedThisTurn = 0;
         _lostHpThisTurn = false;
-        if (PlayerPowers[(int)PowerKind.Barricade] == 0) Block = 0;
+        if (PlayerPowers[(int)PowerKind.Barricade] == 0) Block = Has(RelicKind.SturdyClamp) ? Math.Min(Block, 10) : 0;
         if (Turn > 1 && PlayerPowers[(int)PowerKind.Plating] > 0) PlayerPowers[(int)PowerKind.Plating]--;
         foreach (Enemy e in Enemies)
         {
@@ -300,10 +308,13 @@ public sealed partial class Combat
                 c.FreeThisTurn = false;
             }
         Energy = MaxEnergy + PlayerPowers[(int)PowerKind.Pyre];
+        if (Turn == 1) RelicCombatStart();
+        int extraDraw = RelicTurnStart();
 
         PullAttacksFromDiscard(PlayerPowers[(int)PowerKind.Aggression]);
         PlayerPowers[(int)PowerKind.Strength] += PlayerPowers[(int)PowerKind.DemonForm];
-        DrawCards(HandSize, fromHandDraw: true);
+        DrawCards(HandSize + extraDraw, fromHandDraw: true);
+        RelicAfterDraw();
 
         if (PlayerPowers[(int)PowerKind.CrimsonMantle] > 0)
         {
@@ -323,16 +334,21 @@ public sealed partial class Combat
         LoseHp(damage - absorbed);
         if (attacker != null && PlayerPowers[(int)PowerKind.FlameBarrier] > 0 && attacker.Alive)
             DamageEnemy(attacker, PlayerPowers[(int)PowerKind.FlameBarrier], fromCard: false);
+        if (attacker != null && PlayerPowers[(int)PowerKind.Thorns] > 0 && attacker.Alive)
+            DamageEnemy(attacker, PlayerPowers[(int)PowerKind.Thorns], fromCard: false);
     }
 
     /// <summary>HP loss that block can't stop. On the player's own turn it feeds Rupture and Inferno.</summary>
     private void LoseHp(int amount)
     {
         if (amount <= 0) return;
+        amount = RelicReduceHpLoss(amount);
+        if (amount <= 0) return;
         Hp -= amount;
         HpLost += amount;
         _timesHurt++;
-        if (Hp <= 0 && !TryFairyInABottle()) Result = CombatResult.Lost;
+        if (Hp <= 0 && !TryRevive()) Result = CombatResult.Lost;
+        RelicAfterHpLost(amount);
         if (!_playerTurn) return;
 
         _lostHpThisTurn = true;
@@ -352,7 +368,7 @@ public sealed partial class Combat
     /// <summary>Block from a card (already scaled by Dexterity and Frail); Unmovable doubles the first few each turn.</summary>
     private void GainBlockFromCard(int baseBlock)
     {
-        int amount = PlayerBlockGain(baseBlock);
+        int amount = RelicBlockFromCard(PlayerBlockGain(baseBlock));
         _cardBlockGainsThisTurn++;
         GainBlockRaw(amount);
     }
@@ -454,6 +470,7 @@ public sealed partial class Combat
             return;
         }
         e.Hp = 0;
+        RelicOnEnemyDeath();
         if (e.Powers[(int)PowerKind.Infested] > 0 && _services?.Monster("WRIGGLER") is MonsterDef wriggler)
         {
             for (int i = 0; i < 4; i++)
@@ -600,6 +617,10 @@ public sealed partial class Combat
     {
         if (Result != CombatResult.Ongoing) return;
         if (Hp <= 0) Result = CombatResult.Lost;
-        else if (!Enemies.Any(e => e.Alive && e.Primary)) Result = CombatResult.Won;
+        else if (!Enemies.Any(e => e.Alive && e.Primary))
+        {
+            Result = CombatResult.Won;
+            RelicAfterVictory();
+        }
     }
 }

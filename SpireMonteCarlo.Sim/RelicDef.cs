@@ -1,0 +1,82 @@
+using SpireMonteCarlo.Codex;
+
+namespace SpireMonteCarlo.Sim;
+
+/// <summary>
+/// The relics whose effects the simulator models (rules read from the decompiled relic classes, v0.111; numbers match the
+/// game's canonical vars). Relics not listed here are held but do nothing. Combat relics live in Combat.Relics.cs;
+/// pickup and between-fight effects (max HP, rest healing, potion slots) are applied by the act rollout.
+/// </summary>
+public enum RelicKind
+{
+    Unknown,
+    BurningBlood,
+    // start of combat
+    Anchor, Lantern, BagOfPreparation, BloodVial, BronzeScales, CentennialPuzzle, FestivePopper, Gorget, OddlySmoothStone,
+    RedMask, BagOfMarbles, Vajra, Akabeko, Bellows, StoneCracker, Pantograph,
+    // by turn number
+    HappyFlower, Pendulum, Candelabra, HornCleat, MercuryHourglass, StoneCalendar, CaptainsWheel, Chandelier, SparklingRouge,
+    // counting cards played
+    Nunchaku, PenNib, Shuriken, Kunai, Kusarigama, OrnamentalFan, LetterOpener, TuningFork, RainbowRing, Pocketwatch, ArtOfWar,
+    // playing particular cards
+    Permafrost, GamePiece, IntimidatingHelmet, Vambrace, StrikeDummy, MiniatureCannon,
+    // end of turn
+    Orichalcum, ParryingShield, RippleBasin, CloakClasp, IceCream, SturdyClamp,
+    // taking damage and dying
+    BeatingRemnant, TungstenRod, LizardTail, DemonTongue, SelfFormingClay, RedSkull, PaperPhrog,
+    // other reactions
+    JossPaper, UnceasingTop, GremlinHorn, CharonsAshes, RuinedHelmet, MeatOnTheBone,
+    // out of combat (applied by the rollout)
+    Strawberry, Pear, Mango, PotionBelt, WarPaint, Whetstone, RegalPillow, EternalFeather, Planisphere,
+}
+
+public static class RelicRules
+{
+    private static readonly Dictionary<string, RelicKind> ById =
+        Enum.GetValues<RelicKind>().Where(k => k != RelicKind.Unknown).ToDictionary(k => ToSnake(k.ToString()), StringComparer.OrdinalIgnoreCase);
+
+    public static readonly int Count = Enum.GetValues<RelicKind>().Length;
+
+    /// <summary>BURNING_BLOOD, BAG_OF_MARBLES, ... to a kind; Unknown for relics the simulator doesn't model.</summary>
+    public static RelicKind Parse(string id) => ById.GetValueOrDefault(id, RelicKind.Unknown);
+
+    private static string ToSnake(string pascal)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < pascal.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(pascal[i])) sb.Append('_');
+            sb.Append(char.ToUpperInvariant(pascal[i]));
+        }
+        return sb.ToString();
+    }
+}
+
+/// <summary>
+/// The relics a character can find as elite and chest rewards: rarity is rolled first (50% common, 33% uncommon, 17% rare, as in
+/// RelicFactory), then one of that rarity's relics that the player doesn't own yet. Only the character's own and shared relics are
+/// in the pool. Relics the simulator doesn't model are still drawn (and used up) but do nothing.
+/// </summary>
+public sealed class RelicPool
+{
+    private readonly string[][] _byRarity;   // 0 common, 1 uncommon, 2 rare
+
+    public RelicPool(IEnumerable<CodexRelic> relics, string character)
+    {
+        string own = character.ToLowerInvariant();
+        var all = relics.Where(r => r.Pool == "shared" || r.Pool == own).ToList();
+        _byRarity = new[] { "Common Relic", "Uncommon Relic", "Rare Relic" }
+            .Select(rarity => all.Where(r => r.Rarity == rarity).Select(r => r.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray())
+            .ToArray();
+    }
+
+    /// <summary>A relic id the player doesn't own, or null if the rolled rarity has none left.</summary>
+    public string? Roll(SimRng rng, ICollection<string> owned)
+    {
+        double r = rng.NextDouble();
+        int rarity = r < 0.5 ? 0 : r < 0.83 ? 1 : 2;
+        string[] pool = _byRarity[rarity];
+        var free = pool.Where(id => !owned.Contains(id)).ToList();
+        return free.Count == 0 ? null : free[rng.Next(free.Count)];
+    }
+}
