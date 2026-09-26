@@ -21,6 +21,7 @@ public static class SimCommands
             case "fitleaf": return Load() is { } fitData ? FitLeafCommand.Run(args.Skip(1).ToArray(), fitData) : 1;
             case "calibrate": return Calibrate(args.Skip(1).ToArray());
             case "calibrate-run": return CalibrateRun(args.Skip(1).ToArray());
+            case "calibrate-real": return Load() is { } realData ? CalibrateRealCommand.Run(args.Skip(1).ToArray(), realData) : 1;
             case "rewards": return Rewards(args.Skip(1).ToArray());
             case "audit": return AuditCommand.Run(args.Skip(1).ToArray());
             case "encounters": return ListEncounters(args.Skip(1).ToArray());

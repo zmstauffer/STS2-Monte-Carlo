@@ -346,9 +346,9 @@ public static class AdviceEngine
     private static IEnumerable<string> ActNotes(int act)
     {
         if (act == 2)
-            yield return "Act 2 monsters come from the game's classes, but the simulated decks are weaker than real Act 2 decks and some boss mechanics (racing the Insatiable's sandpit, the Decimillipede's segments) are played badly, so read the comparison between options rather than the absolute survival numbers.";
+            yield return "Act 2 survival is calibrated on real decks, but some boss mechanics (racing the Insatiable's sandpit, the Knowledge Demon's curses) are played badly, so bosses come out harder and normal fights easier than in the real game.";
         else if (act >= 3)
-            yield return "Act 3 is only roughly modelled (several monster mechanics are missing and the fights come out much harder than in the real game); treat this advice as a rough guide.";
+            yield return "Act 3 is roughly modelled (several monster mechanics are missing; its survival is calibrated on only two real runs); treat this advice as a rough guide.";
     }
 
     private static string RoomOf(SimData data, string encounter) => data.Encounters.Contains(encounter) ? data.Encounters.Get(encounter).RoomType : "";

@@ -83,7 +83,7 @@ public sealed class ActRollout
     private readonly double? _playerHpScale;
 
     /// <summary>The fitted scale for an act. Act 2 needs more than Act 1: its enemies hit harder than the decks the reward policy builds can answer.</summary>
-    public static double CalibratedScaleFor(int act) => act <= 1 ? CalibratedPlayerHpScale : CalibratedPlayerHpScaleAct2;
+    public static double CalibratedScaleFor(int act) => act switch { <= 1 => CalibratedPlayerHpScale, 2 => RealDeckScaleAct2, _ => RealDeckScaleAct3 };
 
     // Re-fit after the leaf-value planner (with draw and replan-energy values), Neow boons, generated maps (calibrate-run --maps 200) and the pre-boss rest:
     // 1.7 gives 64% Act 1 survival, 1.72 about 65% (real ~65%), 1.9 gives 74%. It was 2.5 with the older bot, so about a third of the old fudge was bot play.
@@ -99,7 +99,15 @@ public sealed class ActRollout
     // can't line up the Decimillipede's segments, and the simulated decks are weaker than real Act 2 decks); Kaiser Crab (8% vs 24%) and the
     // Prisms are too easy. There is no Act 3 content yet.
     // After the content sweep and the fitted leaf weights: 3.2 gives 59%, 3.5 63% (real ~61%). After the bot fixes: 3.0 gives 60-62%, 3.35 67%.
+    // This value is fit on the simulator's own decks (weaker than real ones), so it now only drives calibrate-run's chained Act 2 runs, which fit
+    // the Act 1 decisions' P(Act 2) in AdviceEngine.ValueOf; the rollouts use RealDeckScaleAct2.
     public const double CalibratedPlayerHpScaleAct2 = 3.0;
+
+    // Acts 2 and 3 for the rollouts, fit on the owner's real decks (sim calibrate-real): whole-act rollouts from the first map screen of each
+    // act in the decision log match real A10 Ironclad survival (61% Act 2, 84% Act 3) at 1.71 (4 runs) and 1.72 (2 runs), and replaying the
+    // 23 real Act 2 fights matches the HP they really cost at 1.82 (rooms weighted like an act). The old 3.0 gave real decks ~99% survival
+    // from mid-act, so every Act 2 option came out "about equal". Act 1's 1.56 agrees with the same anchor (1.61 from the four real starts).
+    public const double RealDeckScaleAct2 = 1.75, RealDeckScaleAct3 = 1.75;
 
     /// <summary>
     /// The HP scale used in the next-act probe. Act 2 enemies hit harder than the Act 1 scale can absorb for a deck that has
