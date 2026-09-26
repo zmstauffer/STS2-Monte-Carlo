@@ -12,7 +12,7 @@ public static class DecisionAdvisor
     public static bool Supports(RunSnapshot snapshot) => snapshot.Decision switch
     {
         DecisionType.CardReward or DecisionType.RestSite or DecisionType.CardUpgrade or DecisionType.Map or DecisionType.Shop => true,
-        DecisionType.Event => snapshot.EventOptions.Any(o => o.Relic != null && !o.IsLocked),
+        DecisionType.Event => snapshot.EventOptions.Any(o => o.Relic != null && !o.IsLocked) || (snapshot.EventId != null && EventLibrary.Find(snapshot.EventId) != null),
         _ => false,
     };
 
@@ -23,7 +23,7 @@ public static class DecisionAdvisor
         DecisionType.CardUpgrade => Upgrade(data, snapshot, rollouts, seed),
         DecisionType.Map => Map(data, snapshot, rollouts, seed),
         DecisionType.Shop => Shop(data, snapshot, rollouts, seed),
-        DecisionType.Event => AncientRelics(data, snapshot, rollouts, seed),
+        DecisionType.Event => snapshot.EventOptions.Any(o => o.Relic != null && !o.IsLocked) ? AncientRelics(data, snapshot, rollouts, seed) : EventChoice(data, snapshot, rollouts, seed),
         _ => throw new NotSupportedException($"Decisions of type '{snapshot.Decision}' are not supported yet."),
     };
 
@@ -56,7 +56,7 @@ public static class DecisionAdvisor
         RolloutStart rest = start.Copy();
         int heal = (int)(0.3 * rest.MaxHp) + (snapshot.Relics.Contains("REGAL_PILLOW") ? 15 : 0);
         rest.Hp = Math.Min(rest.MaxHp, rest.Hp + heal);
-        var options = new List<DecisionOption> { new($"Rest (heal {rest.Hp - start.Hp} HP)", null, rest) };
+        var options = new List<DecisionOption> { new($"Rest (heal {rest.Hp - start.Hp:F0} HP)", null, rest) };
         foreach ((int index, CardDef card) in UpgradeCandidates(deck))
             options.Add(new DecisionOption($"Upgrade {card.Id}", null, Upgraded(data, start, index)));
         return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed);
@@ -89,6 +89,46 @@ public static class DecisionAdvisor
         if (options.Count == 0) throw new InvalidOperationException("There are no nodes to move to from here.");
         return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed);
     }
+
+    // ---- events ----
+
+    private static AdviceReport EventChoice(SimData data, RunSnapshot snapshot, int rollouts, ulong seed)
+    {
+        EventDef def = EventLibrary.Find(snapshot.EventId!)!;
+        var rollout = new ActRollout(data, snapshot);
+        RolloutStart start = rollout.InitialStart(DeckOf(data, snapshot));
+        var notes = new List<string>();
+        var options = new List<DecisionOption>();
+
+        // The options as the game shows them: the snapshot says which are locked; ours say what each one does.
+        EventState probe = ProbeState(data, snapshot, start);
+        IReadOnlyList<EventOptionDef> known = def.Options(probe);
+        foreach (EventOptionSnapshot shown in snapshot.EventOptions.Where(o => !o.IsLocked && !o.IsProceed))
+        {
+            string key = shown.TextKey.Split('.').Last();
+            EventOptionDef? option = known.FirstOrDefault(o => o.Key == key);
+            string label = shown.Title.Length > 0 ? shown.Title : key;
+            if (option == null) { notes.Add($"Option {label} isn't modelled, so it isn't evaluated."); continue; }
+            RolloutStart s = start.Copy();
+            s.EventEffect = option;
+            options.Add(new DecisionOption(label, null, s));
+
+            EventState scratch = ProbeState(data, snapshot, start);
+            option.Apply(scratch);
+            notes.AddRange(scratch.Notes.Select(n => $"{label}: {n}").Distinct());
+        }
+        if (options.Count == 0) throw new InvalidOperationException($"None of the options of {snapshot.EventId} are modelled.");
+        if (options.Count == 1) notes.Add("Only one option can be evaluated, so there is nothing to compare it with.");
+        return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed, notes.Distinct().ToList());
+    }
+
+    /// <summary>An event state on a copy of the deck, for reading which options exist and what they note.</summary>
+    private static EventState ProbeState(SimData data, RunSnapshot snapshot, RolloutStart start) => new()
+    {
+        Data = data, Pool = data.PoolFor(snapshot.Run.Character), RelicPool = data.RelicPoolFor(snapshot.Run.Character), Rng = new SimRng(1), Deck = start.Deck.ToList(),
+        Act = snapshot.Run.Act, Ascension = snapshot.Run.Ascension, Floor = snapshot.Run.TotalFloor,
+        Hp = start.Hp, MaxHp = start.MaxHp, Gold = start.Gold, Relics = start.Relics.ToList(), Potions = start.Potions.ToList(),
+    };
 
     // ---- Ancient relic choice ----
 

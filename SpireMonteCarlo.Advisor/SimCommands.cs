@@ -205,6 +205,7 @@ public static class SimCommands
         var realFights = stats.Values.Where(s => s.Act == 1).GroupBy(s => s.RoomType.ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.Sum(s => s.Characters.Where(c => c.Character == "IRONCLAD").Sum(c => c.Total)));
         double realBoss = Math.Max(1, realFights.GetValueOrDefault("boss"));
+        Console.WriteLine($"At the end: deck {results.Average(r => r.DeckSize):F1} cards, {results.Average(r => r.UpgradedCards):F1} upgraded, {results.Average(r => r.Relics):F1} relics that do something");
         var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
         if (probed.Count > 0) Console.WriteLine($"Act 2 elite probe (3 fights from the post-boss HP), runs that reached it: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won");
         Console.WriteLine($"Fights per run: normal {PerRun("Monster"):F1} (real {realFights.GetValueOrDefault("monster") / realBoss:F1}), elite {PerRun("Elite"):F1} (real {realFights.GetValueOrDefault("elite") / realBoss:F1})");

@@ -5,7 +5,7 @@ namespace SpireMonteCarlo.Sim;
 /// <summary>One fight of a rollout, HP in real (unscaled) points; HpLost is what the enemies took off (capped at the HP the player had), before any healing.</summary>
 public sealed record FightLogEntry(string Encounter, int HpBefore, int HpAfter, int DeckSize, int HpLost = 0, int Turns = 0);
 
-public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0);
+public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0, int DeckSize = 0, int UpgradedCards = 0, int Relics = 0);
 
 /// <summary>
 /// One simulated future of the current act, from the snapshot's position to the end of the act's boss fight.
@@ -20,8 +20,8 @@ public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int Figh
 public sealed class RolloutStart
 {
     public required List<CardDef> Deck { get; init; }
-    public int Hp { get; set; }
-    public int MaxHp { get; set; }
+    public double Hp { get; set; }
+    public double MaxHp { get; set; }
     public int Gold { get; set; }
     public List<string> Relics { get; init; } = new();
     public List<string> Potions { get; init; } = new();
@@ -33,10 +33,16 @@ public sealed class RolloutStart
     /// <summary>The node the player walks to first, instead of the route policy's choice.</summary>
     public MapCoordinate? ForcedNext { get; set; }
 
+    /// <summary>An event option to play out at the start of each rollout, so its random parts (a relic roll, gold amounts) are averaged over the futures.</summary>
+    public EventOptionDef? EventEffect { get; set; }
+
+    /// <summary>Combats the decision itself forces (an event's fight), fought before the first step.</summary>
+    public List<PendingFight> PendingFights { get; init; } = new();
+
     public RolloutStart Copy() => new()
     {
         Deck = Deck.ToList(), Hp = Hp, MaxHp = MaxHp, Gold = Gold, Relics = Relics.ToList(), Potions = Potions.ToList(),
-        RemovalsUsed = RemovalsUsed, AcquireOnStart = AcquireOnStart.ToList(), ForcedNext = ForcedNext,
+        RemovalsUsed = RemovalsUsed, AcquireOnStart = AcquireOnStart.ToList(), ForcedNext = ForcedNext, PendingFights = PendingFights.ToList(), EventEffect = EventEffect,
     };
 }
 
@@ -74,6 +80,7 @@ public sealed class ActRollout
     private readonly RewardPool _pool;
     private readonly int _ascension;
     private readonly RelicPool _relicPool;
+    private readonly string _variant;
     private readonly string[] _weakPool, _normalPool, _elitePool, _bossPool, _nextElitePool;
 
     /// <summary>How many next-act elites the end-of-act deck fights in the probe.</summary>
@@ -93,6 +100,7 @@ public sealed class ActRollout
             _points[boss] = new MapPointSnapshot { Col = boss.Col, Row = boss.Row, Type = "Boss" };
 
         string variant = (snapshot.Plan?.ActId is { Length: > 0 } id ? id : DefaultVariant(snapshot.Run.Act)).Replace("_", "");
+        _variant = variant;
         IEnumerable<EncounterDef> actEncounters = data.Encounters.All.Where(e => (e.Act ?? "").Replace(" ", "").Contains(variant, StringComparison.OrdinalIgnoreCase));
         _weakPool = actEncounters.Where(e => e.RoomType == "Monster" && e.IsWeak).Select(e => e.Id).ToArray();
         _normalPool = actEncounters.Where(e => e.RoomType == "Monster" && !e.IsWeak).Select(e => e.Id).ToArray();
@@ -142,6 +150,8 @@ public sealed class ActRollout
         if (_snap.Plan?.Boss != null) bosses.Add(_snap.Plan.Boss);
         else if (_bossPool.Length > 0) bosses.Add(_bossPool[setupRng.Next(_bossPool.Length)]);
         if (_snap.Plan?.SecondBoss != null && _ascension >= 10) bosses.Add(_snap.Plan.SecondBoss);
+        List<string> eventQueue = _snap.Plan is { Events.Count: > 0 } ? _snap.Plan.Events.ToList() : SampleFrom(EventLibrary.Pool(_variant).ToArray(), setupRng);
+        int eventDrawn = 0;
         int normalDrawn = 0, eliteDrawn = 0, fights = 0, won = 0, unmodelled = 0;
         var fought = new List<string>();
         var log = new List<FightLogEntry>();
@@ -210,18 +220,7 @@ public sealed class ActRollout
 
         // What a typical player does in a shop: remove a Strike/Defend (or a curse) first, then buy a relic that does something,
         // then cards the community would take over skipping, then potions if a slot is free.
-        bool RemoveWorstCard()
-        {
-            int worst = -1, worstRank = int.MaxValue;
-            for (int i = 0; i < deck.Count; i++)
-            {
-                int rank = deck[i].Kind is CardKind.Curse or CardKind.Status ? 0 : deck[i].Id.StartsWith("STRIKE_") ? 1 : deck[i].Id.StartsWith("DEFEND_") ? 2 : int.MaxValue;
-                if (rank < worstRank) { worstRank = rank; worst = i; }
-            }
-            if (worst < 0) return false;
-            deck.RemoveAt(worst);
-            return true;
-        }
+        bool RemoveWorstCard() => DeckPolicies.RemoveWorst(deck);
 
         void VisitShop(SimRng rng)
         {
@@ -248,6 +247,55 @@ public sealed class ActRollout
                 }
                 break;
             }
+        }
+
+        // Events: the game draws them from a shuffled list, skipping any whose conditions aren't met; the player takes the
+        // option a typical player would (see EventLibrary). Events the library doesn't have use up their slot and change nothing.
+        EventState MakeEventState(SimRng rng, int step) => new()
+        {
+            Data = _data, Pool = _pool, RelicPool = _relicPool, Rng = rng, Deck = deck,
+            Act = _snap.Run.Act, Ascension = _ascension, Floor = _snap.Run.TotalFloor + step,
+            Hp = hp / PlayerHpScale, MaxHp = maxHp / PlayerHpScale, Gold = gold,
+            Relics = owned.ToList(), Potions = potions.Select(p => p.Id).ToList(), PotionSlots = potionSlots,
+        };
+
+        bool RunPendingFight(PendingFight pending, SimRng rng)
+        {
+            if (!Fight(pending.Encounter, null)) return false;
+            if (pending.RelicReward) Acquire(_relicPool.Roll(rng, owned), rng);
+            if (pending.PotionReward && PotionLibrary.Roll(rng) is { } reward && potions.Count < potionSlots) potions.Add(reward);
+            return true;
+        }
+
+        bool ApplyEventState(EventState st, string eventId, SimRng rng)
+        {
+            hp = (int)Math.Round(st.Hp * PlayerHpScale);
+            maxHp = (int)Math.Round(st.MaxHp * PlayerHpScale);
+            if (st.Hp > 0 && hp < 1) hp = 1;
+            gold = st.Gold;
+            potions = st.Potions.Select(PotionLibrary.Find).OfType<PotionDef>().ToList();
+            foreach (string relic in st.PendingRelics) Acquire(relic, rng);
+            if (hp <= 0) { diedTo = "EVENT_" + eventId; return false; }
+            foreach (PendingFight pending in st.PendingFights)
+                if (!RunPendingFight(pending, rng)) return false;
+            return true;
+        }
+
+        bool VisitEvent(SimRng rng, int step)
+        {
+            while (eventDrawn < eventQueue.Count)
+            {
+                string id = eventQueue[eventDrawn++];
+                EventDef? def = EventLibrary.Find(id);
+                if (def == null) return true;
+                EventState st = MakeEventState(rng, step);
+                if (!def.Allowed(st)) continue;
+                var options = def.Options(st).Where(o => o.Enabled).ToList();
+                string key = def.Default(st);
+                (options.FirstOrDefault(o => o.Key == key) ?? options.FirstOrDefault())?.Apply(st);
+                return ApplyEventState(st, id, rng);
+            }
+            return true;
         }
 
         // The end-of-act deck fights a few next-act elites, each from the same post-boss HP, so decks that scale (and survive
@@ -315,7 +363,17 @@ public sealed class ActRollout
         }
 
         // Relics the decision itself hands out (an Ancient's choice, a shop purchase) take effect before anything else happens.
+        if (start.EventEffect is { } chosenEvent)
+        {
+            var eventRng = new SimRng(SimRng.Mix(seed, 0xE7E));
+            EventState st = MakeEventState(eventRng, 0);
+            chosenEvent.Apply(st);
+            if (!ApplyEventState(st, "CHOSEN", eventRng)) return Result(false);
+        }
         foreach (string id in start.AcquireOnStart) Acquire(id, new SimRng(SimRng.Mix(seed, 0xA0C)));
+        foreach (PendingFight pending in start.PendingFights)
+            if (!RunPendingFight(pending, new SimRng(SimRng.Mix(seed, 0xF16))))
+                return Result(false);
 
         for (int step = 0; step < 40 && _points.TryGetValue(at, out MapPointSnapshot? here) && here.Children.Count > 0; step++)
         {
@@ -347,6 +405,9 @@ public sealed class ActRollout
                 case "Shop":
                     VisitShop(pathRng);
                     break;
+                case "Event":
+                    if (!VisitEvent(pathRng, step)) return Result(false);
+                    break;
                 case "Treasure":
                     Acquire(_relicPool.Roll(pathRng, owned), pathRng);
                     break;
@@ -360,7 +421,7 @@ public sealed class ActRollout
         // Ran out of map without meeting a boss node (shouldn't happen): count it as reaching the end.
         return Result(true);
 
-        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins);
+        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins, deck.Count, deck.Count(c => c.Upgraded), relics.Count);
 
         int Real(int scaled) => (int)Math.Round(scaled / PlayerHpScale);
     }
@@ -460,17 +521,5 @@ public sealed class ActRollout
     }
 
     /// <summary>Default rest-site upgrade: the card that is best liked (by Elo), Bash first among the starting cards.</summary>
-    private void UpgradeBest(List<CardDef> deck)
-    {
-        int best = -1;
-        double bestScore = double.MinValue;
-        for (int i = 0; i < deck.Count; i++)
-        {
-            CardDef card = deck[i];
-            if (card.Upgraded || card.Kind is CardKind.Status or CardKind.Curse) continue;
-            double score = card.Id == "BASH" ? 1700 : _pool.HasElo(card.Id) ? _pool.Elo(card.Id) : 1000;
-            if (score > bestScore) { bestScore = score; best = i; }
-        }
-        if (best >= 0) deck[best] = _data.Cards.Get(deck[best].Id, true);
-    }
+    private void UpgradeBest(List<CardDef> deck) => DeckPolicies.UpgradeBest(deck, _data, _pool);
 }
