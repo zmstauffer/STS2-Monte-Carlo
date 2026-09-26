@@ -42,6 +42,24 @@ public class DecisionAdvisorTests
     }
 
     [Fact]
+    public void TheUpgradeScreenAfterARestSiteReusesTheRestSitesFutures()
+    {
+        SimData? data = Data();
+        if (data == null) return;
+        AdviceReport rest = DecisionAdvisor.Evaluate(data, Ironclad("rest_site_act1.json", DecisionType.RestSite), 60, 7);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        AdviceReport upgrade = DecisionAdvisor.Evaluate(data, Ironclad("rest_site_act1.json", DecisionType.CardUpgrade), 60, 7);
+        sw.Stop();
+        foreach (OptionReport o in upgrade.Options.Where(o => o.Label.StartsWith("Upgrade ") && o.Label != "Upgrade nothing"))
+        {
+            OptionReport same = rest.Options.Single(r => r.Label == o.Label);
+            Assert.Equal(same.SurvivalRate, o.SurvivalRate);
+            Assert.Equal(same.MeanFutureIfSurvived, o.MeanFutureIfSurvived);
+        }
+        Assert.Contains(upgrade.Options, o => o.Label == "Upgrade nothing");
+    }
+
+    [Fact]
     public void ARestSiteComparesRestingAgainstUpgradingEachDistinctCard()
     {
         SimData? data = Data();

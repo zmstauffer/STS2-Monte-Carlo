@@ -178,7 +178,7 @@ public static class AdviceEngine
     /// Runs every option through the same simulated futures (same seeds, so the same luck) and reports how each does and how
     /// it differs from the first option, the baseline.
     /// </summary>
-    public static AdviceReport Evaluate(SimData data, RunSnapshot snapshot, ActRollout rollout, IReadOnlyList<DecisionOption> options, int rollouts, ulong seed, IReadOnlyList<string>? notes = null)
+    public static AdviceReport Evaluate(SimData data, RunSnapshot snapshot, ActRollout rollout, IReadOnlyList<DecisionOption> options, int rollouts, ulong seed, IReadOnlyList<string>? notes = null, bool reuse = false)
     {
         // Nothing to compare (a map node with one way on): say so instead of simulating.
         if (options.Count == 1)
@@ -198,18 +198,29 @@ public static class AdviceEngine
             foreach (int j in which) results[j][i] = rollout.Run(options[j].Start, rolloutSeed);
         });
 
+        // Options this situation already simulated (the rest site's upgrades, when the card-upgrade screen follows) are reused as they are.
+        string situation = $"{seed}|{rollouts}|{SituationKey(snapshot)}";
+        string[] keys = options.Select(o => StartKey(o.Start)).ToArray();
+        var fresh = new List<int>();
+        for (int j = 0; j < options.Count; j++)
+        {
+            if (reuse && CachedFutures(situation, keys[j]) is { } cached) results[j] = cached;
+            else fresh.Add(j);
+        }
+
         // With many options (a shop's bundles), screen them all on a fifth of the futures first and give the full count only to the
         // baseline and the best few; the rest are reported from the screening futures. A 24-option shop took over a minute before.
-        var all = Enumerable.Range(0, options.Count).ToList();
-        int screen = options.Count > ScreenAbove ? Math.Min(rollouts, Math.Max(100, rollouts / 5)) : rollouts;
-        RunFutures(0, screen, all);
-        if (screen < rollouts)
+        int screen = fresh.Count > ScreenAbove ? Math.Min(rollouts, Math.Max(100, rollouts / 5)) : rollouts;
+        if (fresh.Count > 0) RunFutures(0, screen, fresh);
+        if (screen < rollouts && fresh.Count > 0)
         {
             double Mean(int j) => results[j].Take(screen).Average(r => ValueOf(r, act0) + (r.Survived ? laterPoints[j] / 100 : 0));
-            var kept = all.OrderByDescending(Mean).Take(ScreenKeep).Append(0).Distinct().ToList();
+            var kept = fresh.OrderByDescending(Mean).Take(ScreenKeep).ToList();
+            if (fresh.Contains(0) && !kept.Contains(0)) kept.Add(0);
             RunFutures(screen, rollouts, kept);
-            foreach (int j in all.Except(kept)) results[j] = results[j].Take(screen).ToArray();
+            foreach (int j in fresh.Except(kept)) results[j] = results[j].Take(screen).ToArray();
         }
+        if (reuse) RememberFutures(situation, keys, results);
 
         double DeathRate(RolloutResult[] rs, string room) => rs.Count(r => r.DiedTo != null && RoomOf(data, r.DiedTo) == room) / (double)rs.Length;
         double HpLostPerFight(RolloutResult[] rs, string room)
@@ -278,6 +289,36 @@ public static class AdviceEngine
             UnmodelledFights = results.SelectMany(r => r).Sum(r => r.UnmodelledFights) / options.Count,
             UnknownCards = data.Cards.UnknownIds.ToList(),
         };
+    }
+
+    // ---- reusing futures between the two screens of a rest site ----
+
+    private static readonly object CacheLock = new();
+    private static string? _cachedSituation;
+    private static Dictionary<string, RolloutResult[]> _cachedFutures = new();
+
+    /// <summary>Everything about the run a decision starts from, apart from the decision itself.</summary>
+    private static string SituationKey(RunSnapshot s) =>
+        $"{s.Run.Seed}|{s.Run.Act}|{s.Run.TotalFloor}|{s.Run.CurrentHp}/{s.Run.MaxHp}|{s.Run.Gold}|{s.Map?.Current?.Col},{s.Map?.Current?.Row}|" +
+        $"{string.Join(",", s.Deck.Select(c => c.Id + (c.Upgraded ? "+" : "")))}|{string.Join(",", s.Relics)}|{string.Join(",", s.Potions.Select(p => p.Id))}";
+
+    /// <summary>An option's resulting state; options with the same state have the same futures. Options with extras (events, forced paths) are never shared.</summary>
+    private static string StartKey(RolloutStart s) =>
+        s.EventEffect != null || s.ForcedNext != null || s.PendingFights.Count > 0 || s.AcquireOnStart.Count > 0 ? Guid.NewGuid().ToString()
+            : $"{string.Join(",", s.Deck.Select(c => c.Id + (c.Upgraded ? "+" : "")))}|{s.Hp:F2}/{s.MaxHp:F2}|{s.Gold}|{string.Join(",", s.Relics)}|{string.Join(",", s.Potions)}|{s.RemovalsUsed}";
+
+    private static RolloutResult[]? CachedFutures(string situation, string key)
+    {
+        lock (CacheLock) return _cachedSituation == situation && _cachedFutures.TryGetValue(key, out var r) ? r : null;
+    }
+
+    private static void RememberFutures(string situation, string[] keys, RolloutResult[][] results)
+    {
+        lock (CacheLock)
+        {
+            if (_cachedSituation != situation) { _cachedSituation = situation; _cachedFutures = new(); }
+            for (int j = 0; j < keys.Length; j++) _cachedFutures[keys[j]] = results[j];
+        }
     }
 
     /// <summary>What the reader should know about how far to trust the simulator in this act.</summary>

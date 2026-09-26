@@ -69,7 +69,7 @@ public static class DecisionAdvisor
         var options = new List<DecisionOption> { new($"Rest (heal {rest.Hp - start.Hp:F0} HP)", null, rest) };
         foreach ((int index, CardDef card) in UpgradeCandidates(deck))
             options.Add(new DecisionOption($"Upgrade {card.Id}", null, Upgraded(data, start, index)));
-        return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed);
+        return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed, reuse: true);
     }
 
     private static AdviceReport Upgrade(SimData data, RunSnapshot snapshot, int rollouts, ulong seed)
@@ -80,7 +80,8 @@ public static class DecisionAdvisor
         var options = new List<DecisionOption> { new("Upgrade nothing", null, start) };
         foreach ((int index, CardDef card) in UpgradeCandidates(deck))
             options.Add(new DecisionOption($"Upgrade {card.Id}", null, Upgraded(data, start, index)));
-        return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed);
+        // After "Smith" at a rest site the upgrades were just simulated for the rest site's screen; those futures are reused.
+        return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed, reuse: true);
     }
 
     // ---- map ----
