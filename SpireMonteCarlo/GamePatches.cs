@@ -688,7 +688,7 @@ public static class GamePatches
 				{
 					text = player.Character.Id.Entry?.ToLowerInvariant() ?? "unknown";
 				}
-				Plugin.RunTracker?.StartRun(text, "", ascensionLevel);
+				Plugin.RunTracker?.StartRun(text, __result.Rng?.StringSeed ?? "", ascensionLevel);
 				Plugin.Log($"Run launched: {text} A{ascensionLevel}");
 			}
 		}
@@ -712,12 +712,35 @@ public static class GamePatches
 			RunOutcome runOutcome = (!__0 ? RunOutcome.Loss : RunOutcome.Win);
 			Plugin.Overlay?.ShowRunSummary(runOutcome, num, num2);
 			Plugin.RunTracker?.EndRun(runOutcome, num, num2);
+			WriteRunEnd(__instance, gameState, __0, num, num2);
 			Plugin.LocalStats?.RecomputeAll();
 			Plugin.Log($"Run ended: {runOutcome} on floor {num} (act {num2})");
 		}
 		catch (Exception value)
 		{
 			Plugin.Log($"OnRunEnded error: {value}");
+		}
+	}
+
+	/// <summary>Records how the run ended for the advisor's decision log (snapshots never show a death).</summary>
+	private static void WriteRunEnd(RunManager runManager, GameState? gameState, bool won, int floor, int act)
+	{
+		try
+		{
+			string seed = GameStateReader.GetRunState(runManager)?.Rng?.StringSeed ?? "";
+			if (seed.Length == 0) return;
+			string folder = System.IO.Path.Combine(Plugin.AppDataFolder, "runs");
+			System.IO.Directory.CreateDirectory(folder);
+			var end = new SpireMonteCarlo.Contracts.RunEnd
+			{
+				Seed = seed, Character = gameState?.Character ?? "", Ascension = gameState?.AscensionLevel ?? 0,
+				Won = won, Act = act, Floor = floor, EndedAt = DateTimeOffset.Now,
+			};
+			System.IO.File.WriteAllText(System.IO.Path.Combine(folder, $"{seed}-{DateTime.Now:yyyyMMdd-HHmmss}.json"), SpireMonteCarlo.Contracts.RunEndSerializer.Serialize(end));
+		}
+		catch (Exception value)
+		{
+			Plugin.Log($"WriteRunEnd error: {value}");
 		}
 	}
 

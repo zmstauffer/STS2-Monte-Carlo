@@ -42,6 +42,13 @@ public static class WatchCommand
         var data = new SimData(cache);
         Console.WriteLine($"Ready in {loading.Elapsed.TotalSeconds:F1}s. Watching {snapshots} (Ctrl+C to stop). Advice goes to {advice}.");
 
+        // Everything the mod has written goes into the permanent decision log (the mod keeps only the newest 500 snapshots).
+        bool archive = !args.Contains("--no-log");
+        if (archive)
+        {
+            int archived = DecisionLog.Sweep(snapshots, advice);
+            if (archived > 0) Console.WriteLine($"Archived {archived} snapshot/advice file(s) into {DecisionLog.DefaultFolder} ('advisor log' shows the record).");
+        }
         var seen = new HashSet<string>(args.Contains("--all") ? Array.Empty<string>() : Directory.GetFiles(snapshots, "*.json"), StringComparer.OrdinalIgnoreCase);
         using var cancel = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
@@ -56,6 +63,7 @@ public static class WatchCommand
                 string latest = fresh[^1];
                 seen.Add(latest);
                 Advise(data, latest, advice, fixedRollouts, seed);
+                if (archive) DecisionLog.Sweep(snapshots, advice);
                 if (once) return 0;
             }
             if (timeout > 0 && clock.Elapsed.TotalSeconds > timeout) return once ? 2 : 0;

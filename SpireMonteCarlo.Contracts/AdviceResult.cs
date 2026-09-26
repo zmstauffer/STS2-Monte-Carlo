@@ -58,8 +58,8 @@ public sealed class AdviceOption
     public double? DeckTestHpLost { get; set; }
 
     /// <summary>
-    /// Points behind the best option (0 for the best; one point is about one percent more chance of getting through the act, with HP
-    /// left and the deck test counted in), its uncertainty (about two standard errors), and whether the gap is within that noise.
+    /// Points behind the best option (0 for the best; percentage points of the chance to win the run as the advisor models it), its
+    /// uncertainty (about two standard errors), and whether the gap is too small to call.
     /// </summary>
     public double PointsVsBest { get; set; }
     public double PointsVsBestUncertainty { get; set; }

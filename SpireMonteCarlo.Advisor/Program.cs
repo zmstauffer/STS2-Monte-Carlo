@@ -8,12 +8,15 @@ using SpireMonteCarlo.Contracts;
 // advisor codex check <snapshot.json>|--latest   ids in a snapshot that the cache doesn't know
 // advisor advise <snapshot.json>|--latest    simulate the options of a decision and recommend one
 // advisor watch                              advise on every snapshot the mod writes, while you play
+// advisor log                                the permanent record of runs: choices against the advice, predictions against outcomes
 if (args.Length > 0 && args[0] == "codex")
     return await CodexCommands.RunAsync(args.Skip(1).ToArray());
 if (args.Length > 0 && args[0] == "advise")
     return AdviseCommand.Run(args.Skip(1).ToArray());
 if (args.Length > 0 && args[0] == "watch")
     return WatchCommand.Run(args.Skip(1).ToArray());
+if (args.Length > 0 && args[0] == "log")
+    return DecisionLog.Report(args.Skip(1).ToArray());
 if (args.Length > 0 && args[0] == "sim")
     return SimCommands.Run(args.Skip(1).ToArray());
 

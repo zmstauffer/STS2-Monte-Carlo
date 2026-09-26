@@ -61,9 +61,23 @@ public class RunTracker
 
 	public void StartRun(string character, string seed, int ascensionLevel)
 	{
+		// The game launches a run both when it starts and when a save is continued; the same seed means the same run.
+		if (_currentRun != null && !string.IsNullOrEmpty(seed) && _currentRun.Seed == seed)
+		{
+			Plugin.Log("Run continued: " + _currentRun.RunId.Substring(0, 8) + "... (same seed)");
+			return;
+		}
+		if (_currentRun != null && string.IsNullOrEmpty(_currentRun.Seed) && !string.IsNullOrEmpty(seed))
+		{
+			// A run started by a decision before the launch hook ran has no seed yet; this launch is that run.
+			_currentRun.Seed = seed;
+			return;
+		}
 		if (_currentRun != null)
 		{
-			Plugin.Log("StartRun called while a run is already active. Ending previous run as loss.");
+			// A different run is starting without the previous one having ended (the game was left from the menu, or a save was
+			// abandoned elsewhere): save it with no outcome rather than as a loss.
+			Plugin.Log("StartRun called while another run is active. Saving the previous run without an outcome.");
 			int prevFloor = _currentRun.FinalFloor.GetValueOrDefault();
 			int prevAct = _currentRun.FinalAct.GetValueOrDefault();
 			try
@@ -79,7 +93,7 @@ public class RunTracker
 			{
 				Plugin.Log($"StartRun: failed to read game state for auto-end: {ex.Message}");
 			}
-			EndRun(RunOutcome.Loss, prevFloor, prevAct);
+			EndRun(null, prevFloor, prevAct);
 		}
 		_currentRun = new RunLog
 		{
@@ -203,7 +217,7 @@ public class RunTracker
 		Plugin.Log($"Shop purchase: no matching {itemType} decision found for {itemId}");
 	}
 
-	public void EndRun(RunOutcome outcome, int finalFloor, int finalAct)
+	public void EndRun(RunOutcome? outcome, int finalFloor, int finalAct)
 	{
 		if (_currentRun == null)
 		{
@@ -217,7 +231,7 @@ public class RunTracker
 		try
 		{
 			_db.SaveRun(_currentRun, _currentEvents);
-			Plugin.Log($"Run ended: {outcome} on floor {finalFloor} (act {finalAct}). {_currentEvents.Count} decisions saved.");
+			Plugin.Log($"Run ended: {outcome?.ToString() ?? "no outcome"} on floor {finalFloor} (act {finalAct}). {_currentEvents.Count} decisions saved.");
 		}
 		catch (Exception ex)
 		{
