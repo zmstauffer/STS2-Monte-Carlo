@@ -367,8 +367,7 @@ public static class GameStateReader
 			Type = card.Type.ToString(),
 			Rarity = card.Rarity.ToString()
 		};
-		ModelId id = card.Id;
-		obj.Upgraded = (object)id != null && id.Entry?.EndsWith("+") == true;
+		obj.Upgraded = card.IsUpgraded;
 		obj.Tags = new List<string>();
 		CardInfo cardInfo = obj;
 		try
