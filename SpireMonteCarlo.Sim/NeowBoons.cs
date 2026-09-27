@@ -37,6 +37,12 @@ public static class NeowBoons
 
     public static bool Has(string relicId) => ById.ContainsKey(relicId);
 
+    /// <summary>Boons whose effect the simulator doesn't model at all (Winged Boots' free travel, Lava Rock), so advice can say so.</summary>
+    private static readonly HashSet<string> NoEffect = new() { "WINGED_BOOTS", "LAVA_ROCK" };
+
+    /// <summary>True for a boon whose effect is modelled (at pickup, or later as a <see cref="RelicKind"/>).</summary>
+    public static bool IsModelled(string relicId) => Has(relicId) && !NoEffect.Contains(relicId);
+
     /// <summary>The pickup effect of a boon (nothing for one that only acts later).</summary>
     public static void Apply(string relicId, EventState st)
     {

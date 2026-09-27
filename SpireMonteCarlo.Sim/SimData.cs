@@ -1,4 +1,4 @@
-using SpireMonteCarlo.Codex;
+﻿using SpireMonteCarlo.Codex;
 
 namespace SpireMonteCarlo.Sim;
 
@@ -28,11 +28,15 @@ public sealed class SimData
         Characters = cache.LoadCharacters();
         _cardMetrics = cache.LoadMetrics("cards", EloBracket);
         _relics = cache.LoadRelics();
+        RelicRatings = new RelicRatings(cache, _relics);
         Services = new CombatServices(
             id => Cards.Contains(id) ? Cards.Get(id, false) : null,
             id => Monsters.Contains(id) ? Monsters.Get(id) : null,
             Cards.CombatGenerationPool);
     }
+
+    /// <summary>Real players' results with each relic by act, the relics' stand-in for Elo.</summary>
+    public RelicRatings RelicRatings { get; }
 
     private readonly Dictionary<string, RelicPool> _relicPools = new(StringComparer.OrdinalIgnoreCase);
     private readonly IReadOnlyList<CodexRelic> _relics;

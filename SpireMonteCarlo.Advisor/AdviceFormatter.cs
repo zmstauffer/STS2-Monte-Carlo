@@ -80,7 +80,7 @@ public static class AdviceFormatter
         sb.AppendLine("  follows is predicted from the end-of-act deck test and HP; +/- is the noise; \"~ equal\" means too close to call.");
         sb.AppendLine("  * HP at the end of the act, in the futures that survive it.");
         if (test) sb.AppendLine("  ** HP the end-of-act deck loses per test fight; lower means a stronger deck for what comes next.");
-        if (later) sb.AppendLine("  *** points from worth after this act (new cards: real players' ratings; upgrades: HP saved in test fights), included in \"vs best\".");
+        if (later) sb.AppendLine("  *** points from worth after this act (new cards and relics: real players' results; upgrades: HP saved in test fights), included in \"vs best\".");
         sb.AppendLine();
         sb.AppendLine("Why:");
         foreach (string line in Explainer.Explain(report)) sb.AppendLine($"  - {Readable(line)}");

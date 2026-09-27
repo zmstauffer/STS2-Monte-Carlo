@@ -78,7 +78,8 @@ public sealed class CodexCacheTests : IDisposable
         Assert.Contains("metrics/cards_wr50.json", meta.Files);
         Assert.Contains("metrics/potions_wr50.json", meta.Files);
         Assert.Contains("encounter_stats.json", meta.Files);
-        Assert.Equal(1 + 3 + 1, handler.Requests.Count);
+        Assert.Contains("metrics/relics_act1_a10.json", meta.Files);
+        Assert.Equal(1 + 3 + 3 + 1, handler.Requests.Count);   // export, metrics, relic scores per act, encounter stats
         Assert.False(File.Exists(Path.Combine(_root, "..", "evil.json")));
         Assert.False(Directory.Exists(_root + ".staging"));
     }

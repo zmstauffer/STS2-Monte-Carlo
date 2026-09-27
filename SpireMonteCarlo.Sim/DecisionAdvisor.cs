@@ -63,11 +63,21 @@ public static class DecisionAdvisor
         var rollout = new ActRollout(data, snapshot);
         List<CardDef> deck = DeckOf(data, snapshot);
         RolloutStart start = rollout.InitialStart(deck);
+        // The snapshot is taken when the room is created, before Eternal Feather heals in AfterRoomEntered (3 HP per 5 cards), so
+        // every option starts from the healed HP (sixth playtest, floor 47: "Rest" was advised at 54/74 HP; the Feather healed to full).
+        if (snapshot.Relics.Contains("ETERNAL_FEATHER")) start.Hp = Math.Min(start.MaxHp, start.Hp + 3 * (snapshot.Deck.Count / 5));
 
         RolloutStart rest = start.Copy();
         int heal = (int)(0.3 * rest.MaxHp) + (snapshot.Relics.Contains("REGAL_PILLOW") ? 15 : 0);
         rest.Hp = Math.Min(rest.MaxHp, rest.Hp + heal);
         var options = new List<DecisionOption> { new($"Rest (heal {rest.Hp - start.Hp:F0} HP)", null, rest) };
+        if (snapshot.Relics.Contains("SHOVEL"))
+        {
+            // Shovel adds "Dig": a random relic instead of resting or upgrading (the rollout's default player digs at later rest sites too).
+            RolloutStart dig = start.Copy();
+            dig.EventEffect = new EventOptionDef("DIG", x => x.GainRandomRelic());
+            options.Add(new DecisionOption("Dig (random relic)", null, dig));
+        }
         options.AddRange(UpgradeOptions(data, snapshot, rollout, start, deck));
         return AdviceEngine.Evaluate(data, snapshot, rollout, options, rollouts, seed, reuse: true);
     }
@@ -176,7 +186,7 @@ public static class DecisionAdvisor
         {
             RolloutStart s = start.Copy();
             s.AcquireOnStart.Add(option.Relic!);
-            bool modelled = RelicRules.Parse(option.Relic!) != RelicKind.Unknown || NeowBoons.Has(option.Relic!);
+            bool modelled = RelicRules.Parse(option.Relic!) != RelicKind.Unknown || NeowBoons.IsModelled(option.Relic!);
             options.Add(new DecisionOption(option.Relic! + (modelled ? "" : " (not modelled)"), null, s));
             if (!modelled) notes.Add($"{option.Relic} has effects the simulator doesn't model, so it is scored as if it did nothing.");
         }
@@ -220,7 +230,7 @@ public static class DecisionAdvisor
         if (snapshot.Offer.CardRemovalPrice is int removal && removal <= gold)
         {
             // Removing a Strike or a Defend, or a curse, are the removals worth comparing.
-            foreach (string id in deck.Where(c => c.Id.StartsWith("STRIKE_") || c.Id.StartsWith("DEFEND_") || c.Kind is CardKind.Curse or CardKind.Status).Select(c => c.Id).Distinct())
+            foreach (string id in deck.Where(c => c.Id.StartsWith("STRIKE_") || c.Id.StartsWith("DEFEND_") || c.Kind is CardKind.Curse or CardKind.Status).Where(DeckPolicies.IsRemovable).Select(c => c.Id).Distinct())
                 items.Add(new Item($"remove {id} ({removal}g)", removal, s => { int i = s.Deck.FindIndex(c => c.Id == id); if (i >= 0) s.Deck.RemoveAt(i); s.RemovalsUsed++; }));
         }
 

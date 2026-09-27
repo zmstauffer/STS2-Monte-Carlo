@@ -72,7 +72,7 @@ public sealed class EventState
     /// <summary>Removes a random card that isn't a Strike or Defend (Slippery Bridge takes whatever it shows you).</summary>
     public void RemoveRandomNonBasic()
     {
-        var candidates = Enumerable.Range(0, Deck.Count).Where(i => !Deck[i].Id.StartsWith("STRIKE_") && !Deck[i].Id.StartsWith("DEFEND_")).ToList();
+        var candidates = Enumerable.Range(0, Deck.Count).Where(i => !Deck[i].Id.StartsWith("STRIKE_") && !Deck[i].Id.StartsWith("DEFEND_") && DeckPolicies.IsRemovable(Deck[i])).ToList();
         if (candidates.Count > 0) Deck.RemoveAt(candidates[Rng.Next(candidates.Count)]);
         else RemoveWorstCard();
     }
@@ -84,7 +84,7 @@ public sealed class EventState
         double lowest = double.MaxValue;
         for (int i = 0; i < Deck.Count; i++)
         {
-            if (Deck[i].Id.StartsWith("STRIKE_") || Deck[i].Id.StartsWith("DEFEND_")) continue;
+            if (Deck[i].Id.StartsWith("STRIKE_") || Deck[i].Id.StartsWith("DEFEND_") || !DeckPolicies.IsRemovable(Deck[i])) continue;
             double elo = Deck[i].Kind is CardKind.Curse or CardKind.Status ? 0 : Pool.Elo(Deck[i].Id);
             if (elo < lowest) { lowest = elo; worst = i; }
         }
@@ -202,12 +202,18 @@ public static class DeckPolicies
         _ => false,
     };
 
-    /// <summary>Removes a curse or status first, then a Strike, then a Defend; false if the deck has none of those.</summary>
+    /// <summary>Cards with the Eternal keyword, which can't be removed (<c>CardModel.IsRemovable</c>; v0.111).</summary>
+    private static readonly HashSet<string> Eternal = new() { "ASCENDERS_BANE", "BAD_LUCK", "CURSE_OF_THE_BELL", "ENTHRALLED", "FOLLY", "FORBIDDEN_GRIMOIRE", "GREED" };
+
+    public static bool IsRemovable(CardDef card) => !Eternal.Contains(card.Id);
+
+    /// <summary>Removes a curse or status first, then a Strike, then a Defend; false if the deck has none of those. Eternal cards stay.</summary>
     public static bool RemoveWorst(List<CardDef> deck)
     {
         int worst = -1, worstRank = int.MaxValue;
         for (int i = 0; i < deck.Count; i++)
         {
+            if (!IsRemovable(deck[i])) continue;
             int rank = deck[i].Kind is CardKind.Curse or CardKind.Status ? 0 : deck[i].Id.StartsWith("STRIKE_") ? 1 : deck[i].Id.StartsWith("DEFEND_") ? 2 : int.MaxValue;
             if (rank < worstRank) { worstRank = rank; worst = i; }
         }

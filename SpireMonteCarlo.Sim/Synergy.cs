@@ -30,7 +30,9 @@ public static class Synergy
             {
                 Theme.Exhaust => e.Op switch
                 {
-                    EffectOp.ExhaustRandomFromHand or EffectOp.ExhaustChosenFromHand or EffectOp.PlayTopOfDraw => 1,
+                    EffectOp.ExhaustRandomFromHand or EffectOp.ExhaustChosenFromHand => 1,
+                    EffectOp.PlayTopOfDraw when e.Hits == 1 => 1,   // Havoc exhausts what it plays; Cascade and Catastrophe don't
+
                     EffectOp.ExhaustHand or EffectOp.ExhaustNonAttacksForBlock => 1.5,
                     EffectOp.BuffSelf when e.Power == PowerKind.Corruption => 2,
                     _ => 0,
@@ -43,7 +45,8 @@ public static class Synergy
             };
         }
         if (t == Theme.Exhaust && c.Exhaust && c.Kind != CardKind.Status) v += 0.5;   // exhausts itself
-        if (t == Theme.Strike && c.IsStrike) v += 1;
+        // A Strike adds only a little to each Strike payoff (+2 to a Perfected Strike), and every Strike card is one, so half a unit.
+        if (t == Theme.Strike && c.IsStrike) v += 0.5;
         return Math.Min(v, 2);
     }
 
@@ -64,7 +67,9 @@ public static class Synergy
                     + (e.Op == EffectOp.StrengthFromVulnerable || sources.Any(s => s is Source.TargetVulnerable or Source.TargetIsVulnerable) ? 1 : 0),
                 Theme.Block => (e.Op == EffectOp.BuffSelf && e.Power is PowerKind.Juggernaut or PowerKind.Barricade ? 1 : 0)
                     + (e.Op == EffectOp.DoubleBlock || sources.Any(s => s == Source.Block) ? 1 : 0),
-                Theme.Strength => (e.Op is EffectOp.Damage or EffectOp.DamageAll or EffectOp.DamageRandom && (e.Hits >= 2 || e.HitsSource == Source.X) ? 0.5 : 0)
+                // Strength adds to every hit: multi-hit attacks pay it off most, but any attack does a little (a Strength card in a deck of
+                // Stomp, Perfected Strike and Setup Strike used to count as fitting nothing).
+                Theme.Strength => (e.Op is EffectOp.Damage or EffectOp.DamageAll or EffectOp.DamageRandom ? (e.Hits >= 2 || e.HitsSource == Source.X ? 0.5 : 0.25) : 0)
                     + (sources.Any(s => s == Source.Strength) ? 1 : 0),
                 Theme.Strike => (sources.Any(s => s == Source.StrikeCards) ? 1 : 0) + (e.Op == EffectOp.BuffSelf && e.Power == PowerKind.Hellraiser ? 1 : 0),
                 _ => 0,
@@ -95,6 +100,17 @@ public static class Synergy
             fit += paysOff * Math.Min(deckEnablers, 6) / 3 + enables * Math.Min(deckPayoffs, 2);
         }
         return fit;
+    }
+
+    /// <summary>
+    /// How much of a card's Codex rating above an average card applies in this deck (1 for most cards). A card that only pays off a
+    /// theme (Feel No Pain) is rated by players who mostly took it into decks that feed it, so in a deck with little of that theme only
+    /// the share it fits counts (a playtest, floor 23: Feel No Pain in a deck whose only exhaust card was Second Wind).
+    /// </summary>
+    public static double RatingShare(CardDef card, IReadOnlyList<CardDef> deck)
+    {
+        bool enablesAny = Themes.Any(t => Enables(card, t) > 0), paysAny = Themes.Any(t => PaysOff(card, t) > 0);
+        return enablesAny || !paysAny ? 1 : Math.Min(1, Fit(card, deck));
     }
 
     /// <summary>The Elo a card gains from fitting the deck.</summary>

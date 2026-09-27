@@ -194,7 +194,36 @@ public static class CalibrateRealCommand
                 if (def.Generate(new SimRng(1)).Any(m => !data.Monsters.Contains(m))) continue;
                 yield return new RealFight(run.Seed, before.Run.Act, after.Run.TotalFloor, encounter, def.RoomType, before.Run.CurrentHp, after.Run.CurrentHp, before.Run.MaxHp, before);
             }
+            if (Fatal(run, data) is { } fatal) yield return fatal;
         }
+    }
+
+    /// <summary>
+    /// The fight that ended a run: the run died one floor after its last snapshot, a map choice whose next rooms are all one kind of fight.
+    /// No card reward follows a death, so without this the fights that matter most (and cost all the HP left) were never counted.
+    /// </summary>
+    private static RealFight? Fatal(DecisionLog.Run run, SimData data)
+    {
+        if (run.End is not { Won: false } end || run.Decisions.Count == 0) return null;
+        RunSnapshot last = run.Decisions[^1].Snapshot;
+        if (last.Decision != DecisionType.Map || last.Plan == null || last.Map?.Current is not { } here) return null;
+        if (end.Act != last.Run.Act || end.Floor != last.Run.TotalFloor + 1) return null;
+        MapPointSnapshot? node = last.Map.Points.FirstOrDefault(p => p.Col == here.Col && p.Row == here.Row);
+        if (node == null || node.Children.Count == 0) return null;
+        var kinds = node.Children.Select(c => last.Map.Boss is { } b && c.Col == b.Col && c.Row == b.Row ? "Boss"
+            : last.Map.Points.FirstOrDefault(p => p.Col == c.Col && p.Row == c.Row)?.Type).Distinct().ToList();
+        if (kinds.Count != 1) return null;
+        string? encounter = kinds[0] switch
+        {
+            "Monster" => last.Plan.Normal.FirstOrDefault(),
+            "Elite" => last.Plan.Elite.FirstOrDefault(),
+            "Boss" => last.Plan.Boss,
+            _ => null,
+        };
+        if (encounter == null || !data.Encounters.Contains(encounter)) return null;
+        EncounterDef def = data.Encounters.Get(encounter);
+        if (def.Generate(new SimRng(1)).Any(m => !data.Monsters.Contains(m))) return null;
+        return new RealFight(run.Seed, last.Run.Act, end.Floor, encounter, def.RoomType, last.Run.CurrentHp, 0, last.Run.MaxHp, last);
     }
 
     private static string? Removed(List<string> before, List<string> after) =>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -694,11 +694,24 @@ public static class GamePatches
 		}
 	}
 
+	/// <summary>
+	/// The seed of the run last recorded as a win. <c>RunManager.WinRun</c> calls <c>OnEnded(isVictory: true)</c> and then kills the
+	/// player, whose death calls <c>OnEnded(isVictory: false)</c> for the same run; that second call is ignored.
+	/// </summary>
+	private static string? _wonSeed;
+
 	public static void OnRunEnded(RunManager __instance, bool __0)
 	{
 		try
 		{
 			RecordHook("OnRunEnded");
+			string? endedSeed = GameStateReader.GetRunState(__instance)?.Rng?.StringSeed;
+			if (!__0 && endedSeed != null && endedSeed == _wonSeed)
+			{
+				Plugin.Log("Run ended: ignoring the death that follows a win");
+				return;
+			}
+			_wonSeed = __0 ? endedSeed : null;
 			GameStateReader._lastCardOptions = null;
 			GameStateReader._lastRelicOptions = null;
 			GameStateReader._lastMerchantInventory = null;

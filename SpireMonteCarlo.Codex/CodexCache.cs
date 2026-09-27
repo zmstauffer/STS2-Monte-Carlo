@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text.Json;
 
 namespace SpireMonteCarlo.Codex;
@@ -69,6 +69,10 @@ public sealed class CodexCache
                 }
             }
 
+            log?.Invoke("Downloading relic scores per act...");
+            foreach (int act in RelicActs)
+                Save(staging, RelicActFile(act), await client.GetBytesAsync(RelicActPath(act), ct), meta);
+
             log?.Invoke("Downloading encounter stats...");
             Save(staging, "encounter_stats.json", await DownloadEncounterStatsAsync(client, ct), meta);
 
@@ -101,6 +105,30 @@ public sealed class CodexCache
             if (!hasNext || rows.GetArrayLength() == 0) break;
         }
         return JsonSerializer.SerializeToUtf8Bytes(new { encounters = all });
+    }
+
+    /// <summary>Acts with per-act relic scores: win rate of the A10 runs that held each relic in that act.</summary>
+    public static readonly int[] RelicActs = { 1, 2, 3 };
+    private static string RelicActPath(int act) => $"runs/scores/relics?act={act}&bracket=a10";
+    public static string RelicActFile(int act) => Path.Combine("metrics", $"relics_act{act}_a10.json");
+
+    /// <summary>Refreshes only the per-act relic scores in the existing cache.</summary>
+    public async Task UpdateRelicActsAsync(CodexClient client, CancellationToken ct = default)
+    {
+        foreach (int act in RelicActs)
+        {
+            byte[] data = await client.GetBytesAsync(RelicActPath(act), ct);
+            string path = Path.Combine(Root, RelicActFile(act));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, data);
+        }
+    }
+
+    /// <summary>Per-act relic scores (id -> picks and win rate), or null when the cache doesn't have them yet.</summary>
+    public Dictionary<string, RelicActScore>? LoadRelicAct(int act)
+    {
+        string path = Path.Combine(Root, RelicActFile(act));
+        return File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, RelicActScore>>(File.ReadAllText(path), Json) : null;
     }
 
     /// <summary>Refreshes only encounter_stats.json in the existing cache (no need to redownload the entity export).</summary>
@@ -233,4 +261,12 @@ public sealed class CodexCache
         return JsonSerializer.Deserialize<T>(File.ReadAllText(path), Json)
                ?? throw new JsonException($"{relative} was empty.");
     }
+}
+
+/// <summary>One relic's row of /runs/scores/relics?act=N: runs that held it in that act, and how many of them were won.</summary>
+public sealed class RelicActScore
+{
+    public int Picks { get; set; }
+    public int Wins { get; set; }
+    public double WinRate { get; set; }
 }

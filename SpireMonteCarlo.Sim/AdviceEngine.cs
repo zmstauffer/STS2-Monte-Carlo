@@ -1,4 +1,4 @@
-using SpireMonteCarlo.Contracts;
+﻿using SpireMonteCarlo.Contracts;
 
 namespace SpireMonteCarlo.Sim;
 
@@ -214,9 +214,31 @@ public static class AdviceEngine
         {
             if (had.TryGetValue(c.Id, out int left) && left > 0) { had[c.Id] = left - 1; continue; }
             // How well it fits the deck counts too, as it does for the simulated player's picks (Synergy.Bonus).
-            if (pool.HasElo(c.Id)) total += LongTermPointsPerElo * (pool.Elo(c.Id) + Synergy.Bonus(c, current) - average);
+            // A pure payoff card's rating counts only as far as the deck feeds it (Synergy.RatingShare).
+            if (pool.HasElo(c.Id))
+            {
+                double excess = pool.Elo(c.Id) - average;
+                if (excess > 0) excess *= Synergy.RatingShare(c, current);
+                total += LongTermPointsPerElo * (excess + Synergy.Bonus(c, current));
+            }
         }
         return total * ShareAfterThisAct(snapshot.Run);
+    }
+
+    /// <summary>
+    /// How much of a relic's measured lift (<see cref="RelicRatings"/>) counts as its worth after this act. Half, because runs that
+    /// hold a relic differ in more than the relic (a shop relic goes with the gold to buy it; an elite relic with a deck that beats
+    /// elites), and the relic's effect in the rest of this act and in the deck test is simulated already.
+    /// </summary>
+    public const double RelicLiftWeight = 0.5;
+
+    /// <summary>What the relics an option adds are worth later in the run, in points (their lift over an average relic).</summary>
+    public static double RelicLaterPoints(SimData data, RunSnapshot snapshot, RolloutStart start)
+    {
+        var had = new HashSet<string>(snapshot.Relics, StringComparer.OrdinalIgnoreCase);
+        double total = start.Relics.Concat(start.AcquireOnStart).Where(id => !had.Contains(id)).Distinct()
+            .Sum(id => data.RelicRatings.Lift(id, snapshot.Run.Act));
+        return RelicLiftWeight * total * ShareAfterThisAct(snapshot.Run);
     }
 
     /// <summary>Compares taking each offered card against skipping, over many simulated futures of the act.</summary>
@@ -247,7 +269,7 @@ public static class AdviceEngine
         var results = new RolloutResult[options.Count][];
         for (int j = 0; j < options.Count; j++) results[j] = new RolloutResult[rollouts];
         int act0 = snapshot.Run.Act;
-        double[] laterPoints = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck) + o.LaterPoints).ToArray();
+        double[] laterPoints = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck) + RelicLaterPoints(data, snapshot, o.Start) + o.LaterPoints).ToArray();
         double FutureValue(int j, RolloutResult r) => ValueOf(r, act0) + (r.Survived ? laterPoints[j] / 100 : 0);
 
         void RunFutures(int from, int to, IReadOnlyList<int> which) => Parallel.For(from, to, i =>

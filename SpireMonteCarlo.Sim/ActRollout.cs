@@ -116,7 +116,7 @@ public sealed class ActRollout
     // 9-12% of runs die in normal fights, 12-14% in elites, 14-16% to the boss; ~65% survive): HP 1.15, elite damage 0.85, boss damage
     // 0.8 gave 62% survival (deaths 8.9 / 12.1 / 16.8%), 0.75 for the boss about 64%. At HP 1.0 with no other help 26% survive
     // (14 / 33 / 27%).
-    public const double CalibratedPlayerHpScale = 1.15;
+    public const double CalibratedPlayerHpScale = 1.2;
     public const double CalibratedEliteDamageScale = 0.85;
     public const double CalibratedBossDamageScale = 0.75;
 
@@ -289,6 +289,7 @@ public sealed class ActRollout
         // Encounter sequences: the game's real ones if we have them, otherwise sampled (first three normals are the weak ones).
         var setupRng = new SimRng(SimRng.Mix(seed, 0x5E70));
         int visitedMonsters = _snap.Map!.Visited.Count(c => _points.TryGetValue(c, out MapPointSnapshot? p) && p.Type == "Monster");
+        bool visitedTreasure = _snap.Map.Visited.Any(c => _points.TryGetValue(c, out MapPointSnapshot? p) && p.Type == "Treasure");
         List<string> normals = _snap.Plan is { Normal.Count: > 0 } ? _snap.Plan.Normal.ToList() : SampleNormals(setupRng, visitedMonsters);
         List<string> elites = _snap.Plan is { Elite.Count: > 0 } ? _snap.Plan.Elite.ToList() : SampleFrom(_elitePool, setupRng);
         var bosses = new List<string>();
@@ -876,6 +877,8 @@ public sealed class ActRollout
                     if (!VisitEvent(pathRng, step)) return Result(false);
                     break;
                 case "Treasure":
+                    // Silver Crucible leaves the run's first chest empty (SilverCrucible.ShouldGenerateTreasure).
+                    if (Own(RelicKind.SilverCrucible) && Counter("CRUCIBLE_CHEST") == 0 && !visitedTreasure) { AddCounter("CRUCIBLE_CHEST", 1); break; }
                     Acquire(_relicPool.Roll(pathRng, owned), pathRng);
                     break;
                 case "Boss":

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using SpireMonteCarlo.Codex;
 using SpireMonteCarlo.Contracts;
 
@@ -29,6 +29,14 @@ public static class CodexCommands
             using var statsClient = new CodexClient(Environment.GetEnvironmentVariable("SPIRE_CODEX_API_KEY"));
             await cache.UpdateEncounterStatsAsync(statsClient);
             Console.WriteLine("Encounter stats refreshed.");
+            return 0;
+        }
+
+        if (args.Contains("--relic-acts-only"))
+        {
+            using var relicClient = new CodexClient(Environment.GetEnvironmentVariable("SPIRE_CODEX_API_KEY"));
+            await cache.UpdateRelicActsAsync(relicClient);
+            Console.WriteLine("Per-act relic scores refreshed.");
             return 0;
         }
 

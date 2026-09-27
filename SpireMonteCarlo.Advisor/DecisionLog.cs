@@ -126,7 +126,9 @@ public static class DecisionLog
                 return taken ?? "Skip";
             }
             case DecisionType.Map:
-                return next.Map?.Current is { } at ? $"column {at.Col}, row {at.Row}" : null;
+                // At an act's start the next snapshot is the Ancient, still on the start node: the choice isn't made yet.
+                return next.Map?.Current is { } at && at.Row > 0 && !(s.Map?.Current is { } was && was.Col == at.Col && was.Row == at.Row)
+                    ? $"column {at.Col}, row {at.Row}" : null;
             case DecisionType.RestSite:
                 if (next.Decision == DecisionType.CardUpgrade && next.Run.TotalFloor == s.Run.TotalFloor) return "Upgrade";
                 return next.Run.CurrentHp > s.Run.CurrentHp ? "Rest" : null;
@@ -195,6 +197,33 @@ public static class DecisionLog
 
     // ---- the report ----
 
+    /// <summary>One run's decisions: the advice, the choice made, and how far behind the best option it was (<c>advisor log --run SEED</c>).</summary>
+    private static int ReportRun(List<Run> runs, string seed)
+    {
+        Run? run = runs.FirstOrDefault(r => r.Seed.Equals(seed, StringComparison.OrdinalIgnoreCase));
+        if (run == null) { Console.WriteLine($"No run with seed {seed} in {DefaultFolder}."); return 1; }
+        string ended = run.End is { } e ? (e.Won ? "won" : $"died, act {e.Act} floor {e.Floor}") : "no end recorded";
+        Console.WriteLine($"{run.Seed}: {ended}");
+        Console.WriteLine($"{"floor",5} {"hp",7} {"decision",-12} {"advised",-34} {"chosen",-34} {"behind",7}");
+        for (int k = 0; k < run.Decisions.Count; k++)
+        {
+            Decision d = run.Decisions[k];
+            if (d.Advice == null || d.Advice.Options.Count < 2) continue;
+            string kind = d.Snapshot.Decision;
+            if (kind == DecisionType.Shop && k > 0 && run.Decisions[k - 1].Snapshot.Decision == DecisionType.Shop
+                && run.Decisions[k - 1].Snapshot.Run.TotalFloor == d.Snapshot.Run.TotalFloor) continue;
+            AdviceOption? best = d.Advice.Options.FirstOrDefault(o => o.Label == d.Advice.Best);
+            AdviceOption? pick = d.Chosen == null ? null : MatchOption(d.Advice, kind, d.Chosen);
+            string chosen = d.Chosen == null ? "?" : pick?.Display ?? d.Chosen;
+            string behind = pick == null ? "" : pick.Label == d.Advice.Best ? "best" : pick.AboutEqualToBest ? "tied" : $"{pick.PointsVsBest:F1}";
+            RunInfo r = d.Snapshot.Run;
+            Console.WriteLine($"{r.TotalFloor,5} {r.CurrentHp + "/" + r.MaxHp,7} {kind,-12} {Cut(best?.Display ?? d.Advice.Best),-34} {Cut(chosen),-34} {behind,7}");
+        }
+        return 0;
+
+        static string Cut(string s) => s.Length <= 34 ? s : s[..33] + "~";
+    }
+
     public static int Report(string[] args)
     {
         Sweep(WatchCommand.DefaultSnapshotFolder, WatchCommand.DefaultAdviceFolder);
@@ -204,6 +233,8 @@ public static class DecisionLog
             Console.WriteLine($"No runs in {DefaultFolder} yet. The archive fills while 'advisor watch' runs.");
             return 0;
         }
+        int runArg = Array.IndexOf(args, "--run");
+        if (runArg >= 0 && runArg + 1 < args.Length) return ReportRun(runs, args[runArg + 1]);
         var followed = new Dictionary<string, (int Best, int Tie, int Other, int Unknown)>();
         var predictions = new List<(double Predicted, bool Survived)>();
         Console.WriteLine($"{runs.Count} runs archived in {DefaultFolder}");

@@ -40,6 +40,22 @@ public class CalibrateRealTests
     }
 
     [Fact]
+    public void ADeathOneFloorAfterAMapChoiceIntoAnEliteIsAFatalFight()
+    {
+        if (Shared.Value == null) return;
+        RunSnapshot map = Snap(DecisionType.Map, 20, 40, new[] { "BOWLBUGS_NORMAL" }, new[] { "ENTOMANCER_ELITE" }, at: new MapCoordinate(1, 3));
+        map.Map!.Points.Add(new MapPointSnapshot { Col = 1, Row = 3, Type = "RestSite", Children = { new MapCoordinate(1, 4) } });
+        map.Map.Points.Add(new MapPointSnapshot { Col = 1, Row = 4, Type = "Elite" });
+        var end = new RunEnd { Seed = "S", Won = false, Act = 2, Floor = 21 };
+        var run = new DecisionLog.Run("S", new List<DecisionLog.Decision> { new("0.json", map, null, null) }, end);
+        var fight = Assert.Single(CalibrateRealCommand.Extract(new[] { run }, Shared.Value!));
+        Assert.Equal("ENTOMANCER_ELITE", fight.Encounter);
+        Assert.Equal((40, 0), (fight.HpBefore, fight.HpAfter));
+
+        Assert.Empty(CalibrateRealCommand.Extract(new[] { run with { End = new RunEnd { Seed = "S", Won = false, Act = 2, Floor = 23 } } }, Shared.Value!));   // died later
+    }
+
+    [Fact]
     public void TheBossIsTheFightWhenTheCardRewardStandsOnTheBossNode()
     {
         if (Shared.Value == null) return;

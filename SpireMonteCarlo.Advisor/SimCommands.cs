@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using SpireMonteCarlo.Codex;
 using SpireMonteCarlo.Sim;
 
@@ -184,6 +184,8 @@ public static class SimCommands
         var stats = cache.LoadEncounterStats();
         CodexCharacter ironclad = data.Characters["IRONCLAD"];
         List<CardDef> deck = data.ParseDeck(string.Join(",", ironclad.StartingDeck.Select(DecompiledExtractor.ToSnakeCase)));
+        // A5 and up start with Ascender's Bane (AscensionManager; Eternal, so it stays): real A10 decks always carry it.
+        if (ascension >= 5) deck.Add(data.Cards.Get("ASCENDERS_BANE", false));
 
         int mapCount = int.Parse(Option(args, "--maps") ?? "0");
         var rollouts = new List<ActRollout>();
