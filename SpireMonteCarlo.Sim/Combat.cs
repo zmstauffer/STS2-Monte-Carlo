@@ -47,6 +47,8 @@ public sealed partial class Combat
     public int HpLost { get; private set; }
     public int MaxHpGained { get; private set; }
     public int CardsPlayed { get; private set; }
+    /// <summary>Cards exhausted by their own Exhaust keyword as they were played (their one use), for the bot's exhaust pricing.</summary>
+    public int SelfExhausted { get; private set; }
     public int CardsPlayedThisTurn { get; private set; }
 
     public int AliveEnemies => Enemies.Count(e => e.Alive);
@@ -56,6 +58,8 @@ public sealed partial class Combat
     /// simulator does not model (potions, relics, better play), tuned so whole-act results match real players.
     /// </summary>
     public double EnemyDamageScale { get; }
+    /// <summary>Multiplies every monster's HP (the deck test shortens its fights to real length with it).</summary>
+    public double EnemyHpScale { get; } = 1.0;
 
     /// <summary>The potions the player carries into and out of this fight.</summary>
     public List<PotionDef> Potions { get; } = new();
@@ -82,6 +86,7 @@ public sealed partial class Combat
         Ascension = src.Ascension;
         Character = src.Character;
         EnemyDamageScale = src.EnemyDamageScale;
+        EnemyHpScale = src.EnemyHpScale;
         _services = src._services;
         MaxEnergy = src.MaxEnergy;
         Stakes = src.Stakes;
@@ -89,6 +94,7 @@ public sealed partial class Combat
         CopyRelicState(src);
         CopyAct3State(src);
         Hp = src.Hp; MaxHp = src.MaxHp; Block = src.Block; Energy = src.Energy; Turn = src.Turn;
+        SelfExhausted = src.SelfExhausted;
         Array.Copy(src.PlayerPowers, PlayerPowers, PlayerPowers.Length);
         // Cards in the hand are the ones a play can change in place; the other piles only ever have cards moved between them, so a
         // copy can share the card objects unless some card is changed in place wherever it lies (Stomp's cost reduction).
@@ -117,8 +123,9 @@ public sealed partial class Combat
 
     public Combat(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters, int ascension, ulong seed,
         int maxEnergy = 3, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, CombatServices? services = null,
-        string character = "ironclad", IEnumerable<PotionDef>? potions = null, IEnumerable<RelicKind>? relics = null, int stakes = 0, double hpScale = 1.0)
+        string character = "ironclad", IEnumerable<PotionDef>? potions = null, IEnumerable<RelicKind>? relics = null, int stakes = 0, double hpScale = 1.0, double enemyHpScale = 1.0)
     {
+        EnemyHpScale = enemyHpScale;
         if (potions != null) Potions.AddRange(potions);
         SetRelics(relics);
         Stakes = stakes;
@@ -164,6 +171,7 @@ public sealed partial class Combat
     {
         (int lo, int hi) = ToughEnemies ? (def.HpMinTough, def.HpMaxTough) : (def.HpMin, def.HpMax);
         int enemyHp = Has(RelicKind.FurCoatMarked) ? 1 : Rng.NextInclusive(lo, Math.Max(lo, hi));
+        if (EnemyHpScale != 1.0 && enemyHp > 1) enemyHp = Math.Max(1, (int)Math.Round(enemyHp * EnemyHpScale));
         var enemy = new Enemy { Def = def, Index = Enemies.Count, Hp = enemyHp, MaxHp = enemyHp };
         foreach (InnatePower innate in def.Innate)
         {

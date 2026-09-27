@@ -12,15 +12,15 @@ public static class FightSimulator
     /// <summary>Plays one whole combat with the bot and reports how it went. <paramref name="trace"/> receives a readable play-by-play.</summary>
     public static FightResult Run(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters,
         int ascension, ulong seed, BasicBot? bot = null, Action<string>? trace = null, IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, CombatServices? services = null,
-        IEnumerable<PotionDef>? potions = null, int stakes = 0, IEnumerable<RelicKind>? relics = null, double hpScale = 1.0)
+        IEnumerable<PotionDef>? potions = null, int stakes = 0, IEnumerable<RelicKind>? relics = null, double hpScale = 1.0, double enemyHpScale = 1.0)
     {
         if (ExhaustiveRollouts > 0 && trace == null)
         {
             var list = monsters.ToList();
-            return RunExhaustive(deck, hp, maxHp, list, ascension, seed, ExhaustiveRollouts, 5, 300, services, null, altStarts, enemyDamageScale, potions, stakes, relics, hpScale);
+            return RunExhaustive(deck, hp, maxHp, list, ascension, seed, ExhaustiveRollouts, 5, 300, services, null, altStarts, enemyDamageScale, potions, stakes, relics, hpScale, enemyHpScale);
         }
         bot ??= new BasicBot();
-        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale, services: services, potions: potions, relics: relics, stakes: stakes, hpScale: hpScale);
+        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale, services: services, potions: potions, relics: relics, stakes: stakes, hpScale: hpScale, enemyHpScale: enemyHpScale);
         while (combat.Result == CombatResult.Ongoing)
         {
             if (trace != null) TraceTurnStart(combat, trace);
@@ -38,9 +38,9 @@ public static class FightSimulator
     /// <summary>Research tool: each turn tries every ordered sequence of the cards now in hand, finishes the fight from each with the default bot on shuffled futures, and plays the sequence with the lowest average HP loss.</summary>
     public static FightResult RunExhaustive(IEnumerable<CardDef> deck, int hp, int maxHp, IEnumerable<MonsterDef> monsters,
         int ascension, ulong seed, int rollouts, int maxDepth, int maxSequences, CombatServices? services = null, Action<string>? trace = null,
-        IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, IEnumerable<PotionDef>? potions = null, int stakes = 0, IEnumerable<RelicKind>? relics = null, double hpScale = 1.0)
+        IReadOnlyList<int>? altStarts = null, double enemyDamageScale = 1.0, IEnumerable<PotionDef>? potions = null, int stakes = 0, IEnumerable<RelicKind>? relics = null, double hpScale = 1.0, double enemyHpScale = 1.0)
     {
-        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale, services: services, potions: potions, relics: relics, stakes: stakes, hpScale: hpScale);
+        var combat = new Combat(deck, hp, maxHp, monsters, ascension, seed, altStarts: altStarts, enemyDamageScale: enemyDamageScale, services: services, potions: potions, relics: relics, stakes: stakes, hpScale: hpScale, enemyHpScale: enemyHpScale);
         var fallback = new BasicBot();
         ulong salt = 1;
         while (combat.Result == CombatResult.Ongoing)

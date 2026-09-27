@@ -22,6 +22,9 @@ public static class CardValueCommand
     {
         int n = int.Parse(Option(args, "--n") ?? "40");
         int hp = int.Parse(Option(args, "--hp") ?? "200");
+        // --damage-scale S multiplies the monsters' damage instead of (or as well as) raising the HP pool: the two stand-ins for what
+        // the simulated player lacks price block and self-damage differently.
+        double damageScale = double.Parse(Option(args, "--damage-scale") ?? "1", System.Globalization.CultureInfo.InvariantCulture);
         string baseName = Option(args, "--deck") ?? "mid";
         string character = Option(args, "--character") ?? "ironclad";
         string baseSpec = TuneCommand.Decks.FirstOrDefault(d => d.Name == baseName).Deck ?? baseName;
@@ -55,7 +58,7 @@ public static class CardValueCommand
             {
                 ulong seed = SimRng.Mix(4242, (ulong)(e * 100003 + i));
                 string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(seed, 1)));
-                FightResult r = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), 10, seed, bot: bot, altStarts: encounter.AltStarts, services: data.Services, stakes: stakes);
+                FightResult r = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), 10, seed, bot: bot, altStarts: encounter.AltStarts, enemyDamageScale: damageScale, services: data.Services, stakes: stakes);
                 total += r.Won ? r.HpLost : hp + 40;
             }
             loss[variant, e] = total / n;
@@ -73,7 +76,7 @@ public static class CardValueCommand
         double spearman = withElo.Count >= 3 ? Pearson(simRank, eloRank) : double.NaN;
 
         Console.WriteLine($"Base deck worth per energy {BasicBot.EnergyWorth(baseDeck):F1} (bench reference {BasicBot.BenchEnergyWorth}), damage per energy {BasicBot.DamageRate(baseDeck, 0):F1} (bench reference {BasicBot.BenchDamageRate}).");
-        Console.WriteLine($"Base deck \"{baseName}\" ({baseDeck.Count} cards), {encounters.Count} Act 1 fights x {n} seeds at {hp} HP, {sw.Elapsed.TotalSeconds:F0}s.");
+        Console.WriteLine($"Base deck \"{baseName}\" ({baseDeck.Count} cards), {encounters.Count} Act 1 fights x {n} seeds at {hp} HP{(damageScale != 1 ? $", monster damage x{damageScale:F2}" : "")}, {sw.Elapsed.TotalSeconds:F0}s.");
         Console.WriteLine($"Base deck loses {Enumerable.Range(0, encounters.Count).Average(e => loss[0, e]):F1} HP per fight. Rank correlation of HP saved with Codex Elo: {spearman:F2}");
         var dead = rows.First(r => r.Id == "INJURY");
         Console.WriteLine($"A dead card (Injury) saves {Overall(dead):F1} per fight; cards well below that are likely misplayed: {string.Join(", ", rows.Where(r => r.Id != "INJURY" && Overall(r) < Overall(dead) - 1.5).Select(r => $"{r.Id} {Overall(r):F1}"))}");

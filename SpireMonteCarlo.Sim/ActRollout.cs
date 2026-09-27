@@ -1,4 +1,4 @@
-using SpireMonteCarlo.Contracts;
+﻿using SpireMonteCarlo.Contracts;
 
 namespace SpireMonteCarlo.Sim;
 
@@ -6,7 +6,7 @@ namespace SpireMonteCarlo.Sim;
 public sealed record FightLogEntry(string Encounter, int HpBefore, int HpAfter, int DeckSize, int HpLost = 0, int Turns = 0);
 
 public sealed record RolloutResult(bool Survived, int HpEnd, int MaxHp, int FightsWon, int FightsTotal, string? DiedTo, int UnmodelledFights, IReadOnlyList<string> Encounters, IReadOnlyList<FightLogEntry> Log, int ProbeFights = 0, int ProbeWins = 0, int DeckSize = 0, int UpgradedCards = 0, int Relics = 0, RolloutStart? End = null, double ProbeLoss = 0, int ProbeHpLost = 0,
-    int DevelopedFights = 0, double DevelopedLoss = 0)
+    int DevelopedFights = 0, double DevelopedLoss = 0, IReadOnlyList<FightLogEntry>? ProbeLog = null)
 {
     /// <summary>The deck test of the deck after the next act's card picks (<see cref="ActRollout.DevelopPicks"/>): what the deck grows into when it keeps building; NaN without one.</summary>
     public double DevelopedStrength => DevelopedFights == 0 ? double.NaN : 1 - DevelopedLoss / DevelopedFights;
@@ -82,6 +82,20 @@ public sealed class ActRollout
     public double PlayerHpScale { get => _playerHpScale ?? CalibratedScaleFor(_snap.Run.Act); init => _playerHpScale = value; }
     private readonly double? _playerHpScale;
 
+    /// <summary>
+    /// Multiplies the damage monsters deal in this act's boss fights (<see cref="CalibratedBossDamageScale"/> in Act 1). Where the
+    /// simulated player falls short of a real one is mostly the bosses and elites; the HP scale alone made up for them by making every
+    /// fight cheaper, which undervalued block and HP in the fights before the boss (see <see cref="CalibratedPlayerHpScale"/>).
+    /// </summary>
+    public double BossDamageScale { get => _bossDamageScale ?? (_snap.Run.Act <= 1 ? CalibratedBossDamageScale : 1.0); init => _bossDamageScale = value; }
+    private readonly double? _bossDamageScale;
+
+    /// <summary>Multiplies the damage monsters deal in this act's elite fights (<see cref="CalibratedEliteDamageScale"/> in Act 1).</summary>
+    public double EliteDamageScale { get => _eliteDamageScale ?? (_snap.Run.Act <= 1 ? CalibratedEliteDamageScale : 1.0); init => _eliteDamageScale = value; }
+    private readonly double? _eliteDamageScale;
+
+    private double DamageScaleFor(string roomType) => roomType switch { "Boss" => BossDamageScale, "Elite" => EliteDamageScale, _ => 1.0 };
+
     /// <summary>The fitted scale for an act. Act 2 needs more than Act 1: its enemies hit harder than the decks the reward policy builds can answer.</summary>
     public static double CalibratedScaleFor(int act) => act switch { <= 1 => CalibratedPlayerHpScale, 2 => RealDeckScaleAct2, _ => RealDeckScaleAct3 };
 
@@ -92,7 +106,19 @@ public sealed class ActRollout
     // Re-fit again after the content sweep (every relic and potion, colorless/event cards, enchantments) and the regression-fit leaf weights:
     // 1.55 gives 62.5%, 1.58 63-65%, 1.6 66% Act 1 survival (real ~65%).
     // Again after the bot learned to finish turns that stop at a draw and to price exhausts: 1.50 gives 61%, 1.56 64%, 1.59 68%.
-    public const double CalibratedPlayerHpScale = 1.56;
+    // Split three ways (fourth playtest: the advice took attacks over block cards at nearly every reward): converted back to real HP the
+    // simulated player lost about what real players lose in normal fights and elites but died to bosses far more often (Vantom 31% vs
+    // 19%, Kin 27% vs 18%, Lagavulin Matriarch 31% vs 17.5%), and one HP scale of 1.56 that made up for the bosses made every fight
+    // before them a third cheaper than it really is. Deaths split 8% normal / 30% elite / 62% boss (real roughly 25/35/40), so the
+    // only thing that decided a simulated act was racing the boss, which is what front-loaded attacks are good at; block and HP kept
+    // for later were worth little. Now the HP scale is small and the elites and bosses get their own damage scales, fit on 200
+    // generated maps (calibrate-run --maps 200 --n 4000) to real A10 Ironclad deaths per room (Codex per-fight fatal rates: roughly
+    // 9-12% of runs die in normal fights, 12-14% in elites, 14-16% to the boss; ~65% survive): HP 1.15, elite damage 0.85, boss damage
+    // 0.8 gave 62% survival (deaths 8.9 / 12.1 / 16.8%), 0.75 for the boss about 64%. At HP 1.0 with no other help 26% survive
+    // (14 / 33 / 27%).
+    public const double CalibratedPlayerHpScale = 1.15;
+    public const double CalibratedEliteDamageScale = 0.85;
+    public const double CalibratedBossDamageScale = 0.75;
 
     // Act 2, for the runs that beat Act 1 (sim calibrate-run --maps 200 --act2): at 3.4 Act 2 survival is 57%, at 3.7 64%, at 4.0 68% (real ~61%).
     // The Decimillipede (26% vs 12% real), Insatiable (27% vs 16%) and Knowledge Demon (27% vs 20%) stay too lethal at any scale (the bot
@@ -127,7 +153,25 @@ public sealed class ActRollout
     // The deck test (3 elites and a boss, each from full HP, scored by HP lost) is a yardstick, not a calibration: 4.0 keeps most test fights
     // winnable so HP lost still separates decks (end-of-Act-1 decks win 81% and lose ~42 HP per fight, deck strength 0.49 +/- 0.13;
     // at 3.0 they win 73%). Act 2 decks against Act 2's own elites and boss win 96%.
-    public const double CalibratedProbeHpScale = 4.0;
+    // Replaced (with the test's monster HP scales below): the 4x HP pool let an end-of-act deck fight Act 2's elites and bosses for twice
+    // as long as real players do (Entomancer 9.6 turns vs 4.9, Kaiser Crab 15 vs 7.7, The Insatiable 16 vs 7.3), which made the test
+    // reward what long fights reward. With the monsters' HP at 0.55 (elites) and 0.4 (bosses) the test fights last as long as real ones,
+    // and at 1.5x HP they cost about what they cost real players (Entomancer 31.6 HP vs 35.3, Prisms 31.5 vs 37.3, Kaiser Crab 56 vs 74.5,
+    // Knowledge Demon 60 vs 63, The Insatiable 55 vs 56; bosses lost 12-29% vs 16-24% real). End-of-Act-1 decks keep the same average
+    // strength (0.51, sd 0.14; developed 0.60), so the centres in AdviceEngine.ValueOf still hold.
+    public const double CalibratedProbeHpScale = 1.5;
+
+    /// <summary>
+    /// Multiplies the monsters' HP in the deck test's elite and boss fights. An end-of-act deck meets the next act's elites and boss
+    /// long before a real player does (real decks get there with most of an act more cards, relics and upgrades), so unscaled the test
+    /// fights ran about twice as long as real ones and valued what long fights reward: cards that snowball (Anger's copies) and raw
+    /// damage, with block cards worth no more than a curse. Shorter monsters stand in for the stronger deck a real player brings.
+    /// </summary>
+    public double TestEliteHpScale { get; init; } = CalibratedTestEliteHpScale;
+    public double TestBossHpScale { get; init; } = CalibratedTestBossHpScale;
+    public const double CalibratedTestEliteHpScale = 0.55, CalibratedTestBossHpScale = 0.4;
+
+    private double TestHpScaleFor(string roomType) => roomType == "Boss" ? TestBossHpScale : TestEliteHpScale;
     private readonly RewardPool _pool;
     private readonly int _ascension;
     private readonly RelicPool _relicPool;
@@ -204,7 +248,7 @@ public sealed class ActRollout
                 string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(seed, 1)));
                 if (lineup.Any(m => !_data.Monsters.Contains(m))) continue;
                 FightResult r = FightSimulator.Run(start.Deck, maxHp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, seed, _bot, altStarts: encounter.AltStarts,
-                    services: _data.Services, potions: potions, stakes: encounter.RoomType == "Boss" ? 2 : 1, relics: relics, hpScale: ProbeHpScale);
+                    services: _data.Services, potions: potions, stakes: encounter.RoomType == "Boss" ? 2 : 1, relics: relics, hpScale: ProbeHpScale, enemyHpScale: TestHpScaleFor(encounter.RoomType));
                 lost += (r.Won ? Math.Min(r.HpLost, maxHp) : maxHp) / ProbeHpScale;
                 count++;
             }
@@ -260,6 +304,7 @@ public sealed class ActRollout
         MapCoordinate at = _snap.Map.Current ?? StartPoint();
         string? diedTo = null;
         int probeFights = 0, probeWins = 0, probeHpLost = 0, developedFights = 0;
+        var probeLog = new List<FightLogEntry>();
         double probeLoss = 0, developedLoss = 0;
         RolloutStart? endState = null;
 
@@ -531,7 +576,7 @@ public sealed class ActRollout
 
         void Probe()
         {
-            (probeFights, probeWins, probeLoss, probeHpLost) = TestFights(deck);
+            (probeFights, probeWins, probeLoss, probeHpLost) = TestFights(deck, probeLog);
             Develop();
         }
 
@@ -554,7 +599,7 @@ public sealed class ActRollout
             (developedFights, _, developedLoss, _) = TestFights(developed);
         }
 
-        (int Fights, int Wins, double Loss, int HpLost) TestFights(List<CardDef> testDeck)
+        (int Fights, int Wins, double Loss, int HpLost) TestFights(List<CardDef> testDeck, List<FightLogEntry>? record = null)
         {
             int probeFights = 0, probeWins = 0, probeHpLost = 0;
             double probeLoss = 0;
@@ -574,9 +619,10 @@ public sealed class ActRollout
                 string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(probeSeed, 1)));
                 if (lineup.Any(m => !_data.Monsters.Contains(m))) continue;
                 FightResult r = FightSimulator.Run(testDeck, probeMax, probeMax, lineup.Select(_data.Monsters.Get), _ascension, probeSeed, _bot, altStarts: encounter.AltStarts,
-                    services: _data.Services, potions: potions.ToList(), stakes: encounter.RoomType == "Boss" ? 2 : 1, relics: relics, hpScale: ProbeHpScale);
+                    services: _data.Services, potions: potions.ToList(), stakes: encounter.RoomType == "Boss" ? 2 : 1, relics: relics, hpScale: ProbeHpScale, enemyHpScale: TestHpScaleFor(encounter.RoomType));
                 probeFights++;
                 int lost = r.Won ? Math.Min(r.HpLost, probeMax) : probeMax;
+                record?.Add(new FightLogEntry(order[i], probeMax, r.Won ? r.HpAfter : 0, testDeck.Count, (int)Math.Round(lost / ProbeHpScale), r.Turns));
                 probeLoss += (double)lost / probeMax;
                 probeHpLost += (int)Math.Round(lost / ProbeHpScale);
                 if (r.Won) probeWins++;
@@ -608,7 +654,7 @@ public sealed class ActRollout
             if (Counter("GIRYA") >= 3) combatRelics.Add(RelicKind.GiryaLift3);
             if (furCoatMarks.Contains(fights)) combatRelics.Add(RelicKind.FurCoatMarked);
             if (Own(RelicKind.PumpkinCandle) && Counter("PUMPKIN_CANDLE") <= 0) combatRelics.RemoveAll(k => k == RelicKind.PumpkinCandle);
-            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, services: _data.Services, potions: potions, stakes: stakes, relics: combatRelics, hpScale: PlayerHpScale);
+            FightResult result = FightSimulator.Run(deck, hp, maxHp, lineup.Select(_data.Monsters.Get), _ascension, fightSeed, _bot, altStarts: encounter.AltStarts, enemyDamageScale: DamageScaleFor(encounter.RoomType), services: _data.Services, potions: potions, stakes: stakes, relics: combatRelics, hpScale: PlayerHpScale);
             log.Add(new FightLogEntry(encounterId, Real(hpBefore), result.Won ? Real(result.HpAfter) : 0, deck.Count, Real(Math.Min(result.HpLost, hpBefore)), result.Turns));
             if (!result.Won) { diedTo = encounterId; hp = 0; return false; }
 
@@ -781,9 +827,10 @@ public sealed class ActRollout
                         if (Own(RelicKind.EternalFeather)) hp = Math.Min(maxHp, hp + Scaled(3 * (deck.Count / 5)));
                         if (Own(RelicKind.VenerableTeaSet)) venerableNext = true;
                         if (Own(RelicKind.FakeVenerableTeaSet)) fakeVenerableNext = true;
-                        // The rest site right before the boss is for healing; the others heal when the player is hurt and do something else otherwise.
+                        // The rest site right before the boss is for healing; the others heal when what the rooms up to the next rest site
+                        // usually cost would leave the player low (RestLookAhead), and do something else otherwise.
                         bool beforeBoss = _snap.Map!.Boss is MapCoordinate bossAt && node.Row >= bossAt.Row - 1;
-                        bool needHeal = hp < (beforeBoss ? 0.9 : 0.6) * maxHp;
+                        bool needHeal = beforeBoss ? hp < 0.9 * maxHp : WouldRestAt(at, hp / PlayerHpScale, maxHp / PlayerHpScale);
                         bool tent = Own(RelicKind.MiniatureTent);
                         if (needHeal || (tent && hp < maxHp))
                         {
@@ -846,7 +893,7 @@ public sealed class ActRollout
         // Ran out of map without meeting a boss node (shouldn't happen): count it as reaching the end.
         return Result(true);
 
-        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins, deck.Count, deck.Count(c => c.Upgraded), relics.Count, endState, probeLoss, probeHpLost, developedFights, developedLoss);
+        RolloutResult Result(bool survived) => new(survived, Math.Max(0, Real(hp)), Real(maxHp), won, fights, diedTo, unmodelled, fought, log, probeFights, probeWins, deck.Count, deck.Count(c => c.Upgraded), relics.Count, endState, probeLoss, probeHpLost, developedFights, developedLoss, probeLog);
 
         int Real(int scaled) => (int)Math.Round(scaled / PlayerHpScale);
     }
@@ -894,6 +941,48 @@ public sealed class ActRollout
     };
 
     private Dictionary<MapCoordinate, double>? _pathValue;
+
+    // What rooms usually cost real A10 Ironclads (Codex encounter stats, Act 1 averages weighted by how often each fight comes up):
+    // about 12 HP a normal fight, 30 an elite, 55 the boss; a "?" room is a fight a small part of the time and sometimes costs HP.
+    private static double RoomDanger(string type) => type switch { "Monster" => 12, "Elite" => 30, "Boss" => 55, "Unknown" => 4, _ => 0 };
+
+    /// <summary>
+    /// A rest site heals when the HP left after the rooms up to the next rest site (<see cref="DangerToNextRest"/>) would be under this
+    /// share of max HP. The old rule, "rest below 60% HP", ignored what came next: at 61% HP before three fights and the boss it upgraded,
+    /// so a path through a rest site looked far worse than it was (fourth playtest, floor 10: 53% act survival against 90%). With a
+    /// typical two fights ahead (~24 HP) this is the old rule.
+    /// </summary>
+    public const double RestMargin = 0.3;
+
+    /// <summary>
+    /// Whether the default player heals at this rest site (not the one before the boss) with this much real HP: when the rooms up to the
+    /// next rest site would leave it low, and the heal (30% of max HP, capped at max) still gives at least a tenth of max HP.
+    /// </summary>
+    public bool WouldRestAt(MapCoordinate restSite, double hp, double maxHp) =>
+        hp - DangerToNextRest(restSite) < RestMargin * maxHp && maxHp - hp >= 0.1 * maxHp;
+
+    private Dictionary<MapCoordinate, double>? _dangerToRest;
+
+    /// <summary>Usual real HP cost of the rooms from a node's children to the next rest site (or the boss), along the most likely route (<see cref="PathValue"/>).</summary>
+    public double DangerToNextRest(MapCoordinate from)
+    {
+        _dangerToRest ??= new Dictionary<MapCoordinate, double>();
+        lock (_dangerToRest)
+            if (_dangerToRest.TryGetValue(from, out double cached)) return cached;
+        double danger = 0;
+        MapCoordinate at = from;
+        for (int guard = 0; guard < 30; guard++)
+        {
+            var next = _points[at].Children.Where(_points.ContainsKey).ToList();
+            if (next.Count == 0) break;
+            at = next.MaxBy(PathValue);
+            string type = _points[at].Type;
+            if (type == "RestSite") break;
+            danger += RoomDanger(type);
+        }
+        lock (_dangerToRest) _dangerToRest[from] = danger;
+        return danger;
+    }
 
     /// <summary>Best total room value from a node to the end of the map (memoized; the map never changes).</summary>
     private double PathValue(MapCoordinate at)

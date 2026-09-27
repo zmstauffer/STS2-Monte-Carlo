@@ -222,7 +222,11 @@ public sealed partial class Combat
 
         card = RelicUpgradePlayedCard(card);
         if (card.Kind == CardKind.Power) { /* stays in play for the rest of the combat */ }
-        else if (forceExhaust || card.Exhaust || (card.Kind == CardKind.Skill && PlayerPowers[(int)PowerKind.Corruption] > 0)) ExhaustCard(card);
+        else if (forceExhaust || card.Exhaust || (card.Kind == CardKind.Skill && PlayerPowers[(int)PowerKind.Corruption] > 0))
+        {
+            if (card.Exhaust && !forceExhaust) SelfExhausted++;
+            ExhaustCard(card);
+        }
         else if (!PlaceAfterPlay(card)) DiscardPile.Add(card);
 
         CheckEnd();

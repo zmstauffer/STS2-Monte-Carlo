@@ -277,6 +277,13 @@ public sealed class BasicBot
         double draws = Math.Clamp(enemyHpLeft / dpt, 0, 10) * Math.Min(1.0, 5.0 / deck.Count);
         double replaced = Math.Clamp((deck.Count - 5) / 5.0, 0, 1);
         double loss = 0;
+        // A card with Exhaust is used once a fight however it goes. Exhausted from the hand unplayed, it loses that one later use.
+        // Played (it exhausted itself), it has had its use; what it gives up is only the chance to use it at a better moment, and that
+        // matters only for its block (a big hit later is worth waiting for; Impervious spent on a 6-damage turn is wasted), so a played
+        // one is charged the one later use in proportion to how much of its worth is block. Charging every card for every draw, like a
+        // card that would have been played each time it came up, made the bot hold a free Offering for turns.
+        int playedSelfExhausts = state.SelfExhausted - root.SelfExhausted;
+        var usedOnce = new List<(double Unplayed, double Played)>();
         for (int i = root.ExhaustPile.Count; i < state.ExhaustPile.Count; i++)
         {
             CardDef card = state.ExhaustPile[i];
@@ -284,9 +291,38 @@ public sealed class BasicBot
             // HP per draw by sim cardvalue), so only exhausting a better-than-average card counts, as a loss. A status or curse gains
             // that ~1.5 per draw it would have clogged.
             if (card.Kind is CardKind.Status or CardKind.Curse || card.Cost == CardDef.Unplayable) loss -= JunkDrawCost * draws;
+            else if (card.Exhaust)
+            {
+                double once = Math.Max(0, PlayWorth(card) - replaced * mean) * Math.Min(1.0, draws);
+                usedOnce.Add((once, once * BlockShare(card)));
+            }
             else loss += Math.Max(0, PlayWorth(card) - replaced * mean) * draws;
         }
+        // Which Exhaust cards were the played ones isn't recorded; those whose playing saves the most are taken as played.
+        var ordered = usedOnce.OrderByDescending(u => u.Unplayed - u.Played).ToList();
+        for (int k = 0; k < ordered.Count; k++) loss += k < playedSelfExhausts ? ordered[k].Played : ordered[k].Unplayed;
         return loss;
+    }
+
+    /// <summary>The share of a card's rough worth (<see cref="CardChoices.KeepValue"/>) that comes from block.</summary>
+    private static double BlockShare(CardDef card)
+    {
+        double block = 0, total = 0;
+        foreach (Effect e in card.Effects)
+        {
+            double part = e.Op switch
+            {
+                EffectOp.Block => e.Amount * 0.3,
+                EffectOp.Damage or EffectOp.DamageAll or EffectOp.DamageRandom => (e.Amount + card.BonusDamage) * Math.Max(1, e.Hits) * 0.3,
+                EffectOp.Draw => e.Amount * 3,
+                EffectOp.Energy => e.Amount * 4,
+                EffectOp.LoseHp => 0,
+                _ => 2,
+            };
+            total += part;
+            if (e.Op == EffectOp.Block) block += part;
+        }
+        return total <= 0 ? 0 : block / total;
     }
 
     /// <summary>The bench decks' average damage per energy (<see cref="DamageRate"/>: starter 3.5, mid 3.5, built 3.9, blood 5.1), the rate <see cref="BotTuning.Dpt"/> was fit at.</summary>
@@ -439,17 +475,21 @@ public sealed class BasicBot
     }
 
     /// <summary>
-    /// A play that gives back more energy than it costs (Bloodletting) while the rest of the hand costs more than the energy left. Its
-    /// own score can't see what the energy buys, so without this the search cut it before trying it and then spent the energy
-    /// elsewhere, leaving Bloodletting a dead card. The plan's judgement still decides whether it is worth its drawback.
+    /// A play that makes the turn bigger, so the search must try it: one that gives back more energy than it costs (Bloodletting,
+    /// Offering) while the rest of the hand, plus what the card draws, wants more than the energy left; or a free card that draws
+    /// (Battle Trance). Their own score can't see what the energy and cards buy, so without this the search cut them before trying
+    /// them and then spent the energy elsewhere: Bloodletting was a dead card, and a free Offering sat in hand for turns. The plan's
+    /// judgement still decides whether each is worth its drawback.
     /// </summary>
     private static bool GivesSpareEnergy(Combat combat, CardDef card, int cost)
     {
         if (cost == CardDef.XCost) return false;
+        int draws = card.Effects.Where(e => e.Op == EffectOp.Draw && e.AmountSource == Source.None).Sum(e => e.Amount);
+        if (cost == 0 && draws > 0) return true;
         int gain = card.Effects.Where(e => e.Op == EffectOp.Energy && e.AmountSource == Source.None).Sum(e => e.Amount);
         if (gain <= cost) return false;
         int wanted = combat.Hand.Where(o => o != card && combat.CanPlayIgnoringEnergy(o)).Sum(o => combat.EffectiveCost(o) == CardDef.XCost ? 2 : Math.Max(0, combat.EffectiveCost(o)));   // an X card wants whatever is spare
-        return wanted > combat.Energy - cost;
+        return wanted + draws > combat.Energy - cost;   // a drawn card wants about one energy
     }
 
     /// <summary>Healing is worth much more when HP is low.</summary>

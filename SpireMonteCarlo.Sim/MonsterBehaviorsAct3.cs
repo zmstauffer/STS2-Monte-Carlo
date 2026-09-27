@@ -37,7 +37,7 @@ public sealed class TestSubjectBehavior : MonsterBehavior
         // Its Respawn move: the next form at full HP, then the branch to the form's first move.
         int respawns = self.State.GetValueOrDefault(Respawns) + 1;
         self.State[Respawns] = respawns;
-        self.MaxHp = respawns == 1 ? (combat.ToughEnemies ? 212 : 200) : (combat.ToughEnemies ? 313 : 300);
+        self.MaxHp = Math.Max(1, (int)Math.Round((respawns == 1 ? (combat.ToughEnemies ? 212 : 200) : (combat.ToughEnemies ? 313 : 300)) * combat.EnemyHpScale));
         self.Hp = self.MaxHp;
         self.Reviving = false;
         if (respawns == 1) self.Powers[(int)PowerKind.PainfulStabs] = 1;

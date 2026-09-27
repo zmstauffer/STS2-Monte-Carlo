@@ -200,7 +200,11 @@ public static class SimCommands
             snap.Map!.Current = null; snap.Map.Visited = new();
             snap.Odds = null;
             snap.Plan = new Contracts.ActPlan { ActId = variant };
-            rollouts.Add(new ActRollout(data, snap) { ProbeHpScale = double.Parse(Option(args, "--probe-scale") ?? ActRollout.CalibratedProbeHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture), PlayerHpScale = double.Parse(Option(args, "--hp-scale") ?? ActRollout.CalibratedPlayerHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture) });
+            rollouts.Add(new ActRollout(data, snap) { ProbeHpScale = double.Parse(Option(args, "--probe-scale") ?? ActRollout.CalibratedProbeHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture), PlayerHpScale = double.Parse(Option(args, "--hp-scale") ?? ActRollout.CalibratedPlayerHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture),
+                BossDamageScale = double.Parse(Option(args, "--boss-damage") ?? ActRollout.CalibratedBossDamageScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture),
+                EliteDamageScale = double.Parse(Option(args, "--elite-damage") ?? ActRollout.CalibratedEliteDamageScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture),
+                TestEliteHpScale = double.Parse(Option(args, "--test-elite-hp") ?? ActRollout.CalibratedTestEliteHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture),
+                TestBossHpScale = double.Parse(Option(args, "--test-boss-hp") ?? ActRollout.CalibratedTestBossHpScale.ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture) });
         }
 
         var results = new RolloutResult[n];
@@ -217,6 +221,12 @@ public static class SimCommands
         Console.WriteLine($"At the end: deck {results.Average(r => r.DeckSize):F1} cards, {results.Average(r => r.UpgradedCards):F1} upgraded, {results.Average(r => r.Relics):F1} relics that do something");
         var probed = results.Where(r => r.Survived && r.ProbeFights > 0).ToList();
         if (probed.Count > 0) Console.WriteLine($"Deck test (3 Act 2 elites and an Act 2 boss, each from full HP), runs that reached it: {100.0 * probed.Sum(r => r.ProbeWins) / probed.Sum(r => r.ProbeFights):F1}% won, {(double)probed.Sum(r => r.ProbeHpLost) / probed.Sum(r => r.ProbeFights):F1} HP lost per fight, strength {probed.Average(r => r.DeckStrength):F2} (sd {Math.Sqrt(probed.Average(r => r.DeckStrength * r.DeckStrength) - Math.Pow(probed.Average(r => r.DeckStrength), 2)):F2})");
+        if (probed.Count > 0)
+            foreach (var g in probed.SelectMany(r => r.ProbeLog ?? Array.Empty<FightLogEntry>()).GroupBy(l => l.Encounter).OrderBy(g => g.Key))
+            {
+                CodexCharacterStat? real = stats.TryGetValue(g.Key, out var st) ? st.Characters.FirstOrDefault(c => c.Character == "IRONCLAD") : null;
+                Console.WriteLine($"  test {g.Key,-28} {g.Count(),6} fights  won {100.0 * g.Count(l => l.HpAfter > 0) / g.Count(),5:F1}%  HP lost {g.Average(l => (double)l.HpLost),6:F1} (real {real?.AvgDamage ?? 0,5:F1})  turns {g.Average(l => (double)l.Turns),5:F1} (real {real?.AvgTurns ?? 0,4:F1})");
+            }
         var developed = probed.Where(r => !double.IsNaN(r.DevelopedStrength)).ToList();
         if (developed.Count > 0)
             Console.WriteLine($"After the next act's card picks ({ActRollout.DevelopPicks} picks, {ActRollout.DevelopUpgrades} upgrades): deck strength {developed.Average(r => r.DevelopedStrength):F2} (sd {Math.Sqrt(developed.Average(r => r.DevelopedStrength * r.DevelopedStrength) - Math.Pow(developed.Average(r => r.DevelopedStrength), 2)):F2})");
@@ -448,6 +458,7 @@ public static class SimCommands
         var potions = (Option(args, "--potions") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(id => PotionLibrary.Find(id) ?? throw new ArgumentException($"Unknown or unmodelled potion {id}")).ToList();
         int stakes = encounter.RoomType switch { "Boss" => 2, "Elite" => 1, _ => 0 };
+        double enemyHp = double.Parse(Option(args, "--enemy-hp") ?? "1", System.Globalization.CultureInfo.InvariantCulture);
         var bot = new BasicBot
         {
             NodeBudget = int.Parse(Option(args, "--nodes") ?? new BasicBot().NodeBudget.ToString()),
@@ -462,7 +473,7 @@ public static class SimCommands
             ulong traceSeed = SimRng.Mix(seed, 0);
             string[] traceLineup = encounter.Generate(new SimRng(SimRng.Mix(traceSeed, 1)));
             Console.WriteLine($"{encounter.Id} (A{ascension}): {string.Join(" + ", traceLineup)}");
-            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot);
+            FightSimulator.Run(deck, hp, hp, traceLineup.Select(data.Monsters.Get), ascension, traceSeed, trace: Console.WriteLine, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot, enemyHpScale: enemyHp);
             return 0;
         }
 
@@ -504,7 +515,7 @@ public static class SimCommands
             ulong fightSeed = SimRng.Mix(seed, (ulong)i);
             string[] lineup = encounter.Generate(new SimRng(SimRng.Mix(fightSeed, 1)));
             monsterIds[i] = lineup;
-            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot);
+            results[i] = FightSimulator.Run(deck, hp, hp, lineup.Select(data.Monsters.Get), ascension, fightSeed, altStarts: encounter.AltStarts, services: data.Services, potions: potions, stakes: stakes, relics: relics, bot: bot, enemyHpScale: enemyHp);
         });
         sw.Stop();
 

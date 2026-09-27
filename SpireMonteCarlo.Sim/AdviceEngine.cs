@@ -127,13 +127,16 @@ public static class AdviceEngine
     // at the calibrated HP scales, ~3900 Act 1 survivors): logit P = -6.99 + 5.93 x deck strength + 4.99 x share of HP carried in (after
     // the Ancient's heal). Survival by deck-strength fifth was 31/53/60/72/84%. The strength slope is stable between fits (5.5-5.9); the
     // HP slope is not (2.6-5.5), since HP carried in varies little.
-    private const double NextActIntercept = -6.99, StrengthSlope = 5.93, HpSlope = 4.99;
+    // Re-fit after the deck test was made to last as long as real Act 2 fights (ActRollout.CalibratedProbeHpScale) and Act 1 got its
+    // per-room scales (6000 runs, 3888 Act 1 survivors): logit P = -4.39 + 4.31 x strength + 3.20 x HP share; survival by strength
+    // fifth 45/60/69/75/82%. The old test's long fights spread decks by how well they race, which is why its slope was steeper.
+    private const double NextActIntercept = -4.39, StrengthSlope = 4.31, HpSlope = 3.20;
 
     // Act 3 isn't modelled well enough to simulate, so the chance of winning it uses the same sensitivity to deck strength, centred on
     // the real rate: A10 Ironclads win 33.4% of runs and survive Acts 1 and 2 about 65% and 61% of the time, so ~84% of those who reach
-    // Act 3 win it. Centred on the average end-of-Act-1 deck (0.50) for Act 1 decisions and on the average end-of-Act-2 deck (0.70,
+    // Act 3 win it. Centred on the average end-of-Act-1 deck (0.51) for Act 1 decisions and on the average end-of-Act-2 deck (0.72,
     // tested against the same Act 2 fights) for Act 2 decisions.
-    private const double Act3WinRate = 0.84, Act1DeckStrength = 0.50, Act2DeckStrength = 0.70, Act2HpShare = 0.9;
+    private const double Act3WinRate = 0.84, Act1DeckStrength = 0.51, Act2DeckStrength = 0.72, Act2HpShare = 0.9;
 
     // For Act 1 decisions the Act 3 chance is judged on the deck after the next act's card picks (RolloutResult.DevelopedStrength),
     // centred on its average (sim calibrate-run: DEVELOPED_MEAN below), so a card that the deck builds around counts for what it grows into.
@@ -144,7 +147,12 @@ public static class AdviceEngine
     // from the average Ironclad card (the regression's centre), and only for the share of the run after the current act. (It was first
     // measured from the reward policy's Elo of skipping, which rises with deck size to ~1700 at 20 cards, so nearly every card looked worse
     // than Skip later in the run and Skip won most late-act rewards.)
-    public const double LongTermPointsPerElo = 0.0157;
+    // Now the full slope (fourth playtest): half was counted on the view that the rollouts' deck test already sees part of a card's later
+    // worth, but the simulator's card values don't follow real players' at all (sim cardvalue: rank correlation with Elo about 0 even
+    // after the attack-bias fixes), and its futures never adapt picks to what the deck lacks, so it kept favouring attacks. Over the 92
+    // logged card rewards the best card was an attack ~70% of the time against 41% of real Act 1 picks (Codex pick rates); at the full
+    // slope about 53%, and the ranking agrees with Elo per screen at about +0.4 instead of +0.1.
+    public const double LongTermPointsPerElo = 0.031;
 
     private static double Logistic(double x) => 1 / (1 + Math.Exp(-x));
     private static double Logit(double p) => Math.Log(p / (1 - p));
@@ -173,8 +181,9 @@ public static class AdviceEngine
     }
 
     // How much the run's value moves per unit of deck strength (1 - share of HP lost in the deck test), from ValueOf at average decks:
-    // V x ((1 - P(Act 2)) + (1 - P(Act 3))) x 5.93 with V ~0.5, P(Act 2) ~0.6, P(Act 3) ~0.84.
-    private const double RunValuePerStrength = 1.66;
+    // V x ((1 - P(Act 2)) + (1 - P(Act 3))) x slope with V ~0.5, P(Act 2) ~0.66, P(Act 3) ~0.84: 1.66 with the old slope 5.93, now
+    // 0.5 x 0.50 x 4.31.
+    private const double RunValuePerStrength = 1.08;
 
     /// <summary>
     /// An upgrade's worth after the current act, in points: the HP per test fight it saves the current deck (<see cref="ActRollout.TestDeck"/>,
