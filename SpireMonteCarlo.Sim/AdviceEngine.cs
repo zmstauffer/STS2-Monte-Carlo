@@ -149,9 +149,10 @@ public static class AdviceEngine
     // than Skip later in the run and Skip won most late-act rewards.)
     // Now the full slope (fourth playtest): half was counted on the view that the rollouts' deck test already sees part of a card's later
     // worth, but the simulator's card values don't follow real players' at all (sim cardvalue: rank correlation with Elo about 0 even
-    // after the attack-bias fixes), and its futures never adapt picks to what the deck lacks, so it kept favouring attacks. Over the 92
-    // logged card rewards the best card was an attack ~70% of the time against 41% of real Act 1 picks (Codex pick rates); at the full
-    // slope about 53%, and the ranking agrees with Elo per screen at about +0.4 instead of +0.1.
+    // after the attack-bias fixes), and its futures never adapt picks to what the deck lacks, so it kept favouring attacks. On 41 logged
+    // card rewards the best card was an attack in 67% of card picks before the fixes and 61% after them, against 41% of real Act 1 picks
+    // (Codex pick rates by act); with the full slope 44%, the best is the highest-Elo card offered 46% of the time (24% before), and the
+    // ranking agrees with Elo per screen at +0.38 (-0.04 before).
     public const double LongTermPointsPerElo = 0.031;
 
     private static double Logistic(double x) => 1 / (1 + Math.Exp(-x));
