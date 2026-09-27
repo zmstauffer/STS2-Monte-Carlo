@@ -16,6 +16,9 @@ public static class SnapshotExporter
 
 	public static string Folder => Path.Combine(Plugin.AppDataFolder, "snapshots");
 
+	/// <summary>File name of the newest snapshot written (the Spire MC panel waits for the advisor's answer to it); null before the first.</summary>
+	public static volatile string LastFile;
+
 	public static void Export(string decision, GameState state, EventModel eventModel = null)
 	{
 		if (state == null) return;
@@ -34,6 +37,7 @@ public static class SnapshotExporter
 				Directory.CreateDirectory(Folder);
 				string path = Path.Combine(Folder, $"{capturedAt:yyyyMMdd-HHmmss-fff}_{decision}.json");
 				File.WriteAllText(path, SnapshotSerializer.Serialize(snapshot));
+				LastFile = Path.GetFileName(path);
 				Prune();
 			}
 		}

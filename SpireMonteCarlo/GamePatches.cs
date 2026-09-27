@@ -81,8 +81,6 @@ public static class GamePatches
 	{
 		try
 		{
-			// Always clean up existing badges first — prevents stale badges on pile viewers, etc.
-			Plugin.Overlay?.CleanupAllBadges();
 			// Draw/discard pile viewers also use ShowScreen but with many cards — skip those
 			if (options != null && options.Count > 5)
 			{
@@ -227,7 +225,6 @@ public static class GamePatches
 		Plugin.RunTracker?.RecordArchetypeSnapshot(gameState.Floor, deckAnalysis);
 		List<ScoredCard> cards = Plugin.SynergyScorer.ScoreOfferings(gameState.OfferedCards, deckAnalysis, gameState.Character, gameState.ActNumber, gameState.Floor, Plugin.TierEngine, Plugin.AdaptiveScorer);
 		Plugin.Overlay?.ShowCardAdvice(cards, deckAnalysis, gameState.Character);
-		Plugin.Overlay?.InjectCardGrades(screen, cards);
 		// Dedup: only record if this is a new offering (prevents ShowScreen+RefreshOptions double-recording)
 		var offeredIds = gameState.OfferedCards.ConvertAll((CardInfo c) => c.Id);
 		offeredIds.Sort();
@@ -449,7 +446,6 @@ public static class GamePatches
 					var scored = Plugin.SynergyScorer.ScoreForUpgrade(offeredCards, deckAnalysis, character,
 						gameState.ActNumber, gameState.Floor, Plugin.TierEngine, Plugin.AdaptiveScorer);
 					Plugin.Overlay?.ShowCardAdvice(scored, deckAnalysis, character, "CARD UPGRADE");
-					Plugin.Overlay?.CleanupAllBadges();
 					return;
 				}
 			}

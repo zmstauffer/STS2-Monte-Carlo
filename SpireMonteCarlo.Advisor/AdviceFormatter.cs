@@ -28,8 +28,9 @@ public static class AdviceFormatter
     }
 
     /// <summary>The one-line recommendation: the best option and how sure the simulations are about it.</summary>
-    public static string Suggestion(AdviceReport report)
+    public static string Suggestion(AdviceReport report, Func<string, string>? name = null)
     {
+        Func<string, string> Readable = name ?? AdviceFormatter.Readable;
         OptionReport best = report.Options[0];
         List<OptionReport> ties = Ties(report);
         if (report.Options.Count == 1) return $"Only one option: {Readable(best.Label)}.";
@@ -99,7 +100,41 @@ public static class AdviceFormatter
         return notes;
     }
 
-    public static AdviceResult ToResult(string snapshotFile, RunSnapshot snapshot, AdviceReport report, int rollouts, double seconds) => new()
+    /// <summary>
+    /// How a player would name each option on screen: readable card names, and map nodes by room and position among the choices
+    /// ("Elite (left)") rather than map columns.
+    /// </summary>
+    public static Dictionary<string, string> DisplayLabels(RunSnapshot snapshot, AdviceReport report)
+    {
+        var names = new Dictionary<string, string>();
+        var nodes = report.Options.Select(o => (o.Label, Match: Regex.Match(o.Label, @"^(\w+) \(column (\d+), row \d+\)$"))).ToList();
+        var columns = nodes.Where(n => n.Match.Success).Select(n => int.Parse(n.Match.Groups[2].Value)).Distinct().OrderBy(c => c).ToList();
+        foreach ((string label, Match m) in nodes)
+            names[label] = snapshot.Decision == DecisionType.Map && m.Success
+                ? RoomName(m.Groups[1].Value) + Position(columns.IndexOf(int.Parse(m.Groups[2].Value)), columns.Count)
+                : Readable(label);
+        return names;
+    }
+
+    private static string RoomName(string type) => type switch
+    {
+        "Unknown" => "? room",
+        "RestSite" => "Rest site",
+        _ => type,
+    };
+
+    private static string Position(int index, int count) => count switch
+    {
+        <= 1 => "",
+        2 => index == 0 ? " (left)" : " (right)",
+        3 => new[] { " (left)", " (middle)", " (right)" }[index],
+        _ => $" ({index + 1}{(index == 0 ? "st" : index == 1 ? "nd" : index == 2 ? "rd" : "th")} from left)",
+    };
+
+    public static AdviceResult ToResult(string snapshotFile, RunSnapshot snapshot, AdviceReport report, int rollouts, double seconds)
+    {
+        Dictionary<string, string> names = DisplayLabels(snapshot, report);
+        return new()
     {
         SnapshotFile = Path.GetFileName(snapshotFile),
         Decision = snapshot.Decision,
@@ -109,11 +144,12 @@ public static class AdviceFormatter
         Seconds = Math.Round(seconds, 1),
         Baseline = report.BaselineLabel,
         Best = report.Options[0].Label,
-        Suggestion = Suggestion(report),
+        Suggestion = Suggestion(report, label => names[label]),
         BestIsClear = report.Options.Count > 1 && Ties(report).Count == 0,
         Options = report.Options.Select(o => new AdviceOption
         {
             Label = o.Label,
+            Display = names[o.Label],
             IsBaseline = o.IsBaseline,
             SurvivalPct = Math.Round(100 * o.SurvivalRate, 1),
             HpLeft = Math.Round(o.MeanHpEnd, 1),
@@ -130,4 +166,5 @@ public static class AdviceFormatter
         Why = Explainer.Explain(report).ToList(),
         Notes = Notes(report).ToList(),
     };
+    }
 }

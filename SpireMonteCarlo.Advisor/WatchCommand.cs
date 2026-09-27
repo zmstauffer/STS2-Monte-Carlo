@@ -53,9 +53,13 @@ public static class WatchCommand
         using var cancel = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
         var clock = Stopwatch.StartNew();
+        WriteStatus(advice, "", WatcherStatus.Idle, "");
+        var heartbeat = Stopwatch.StartNew();
 
         while (!cancel.IsCancellationRequested)
         {
+            // The mod's panel reads the heartbeat to tell a running advisor from one that isn't.
+            if (heartbeat.Elapsed.TotalSeconds >= 3) { WriteStatus(advice, _status.SnapshotFile, _status.State, _status.Message); heartbeat.Restart(); }
             string[] fresh = Directory.GetFiles(snapshots, "*.json").Where(f => !seen.Contains(f)).OrderBy(f => f, StringComparer.Ordinal).ToArray();
             if (fresh.Length > 0)
             {
@@ -69,7 +73,27 @@ public static class WatchCommand
             if (timeout > 0 && clock.Elapsed.TotalSeconds > timeout) return once ? 2 : 0;
             cancel.Token.WaitHandle.WaitOne(400);
         }
+        try { File.Delete(Path.Combine(advice, "status.json")); } catch (IOException) { }   // stopped: the panel says so at once
         return 0;
+    }
+
+    private static WatcherStatus _status = new();
+
+    /// <summary>Writes advice\status.json for the in-game panel: which snapshot, what the advisor is doing with it, and a fresh heartbeat.</summary>
+    public static void WriteStatus(string adviceFolder, string snapshotFile, string state, string message)
+    {
+        _status = new WatcherStatus { SnapshotFile = snapshotFile, State = state, Message = message, UpdatedAt = DateTimeOffset.Now };
+        try { WriteAtomic(Path.Combine(adviceFolder, "status.json"), AdviceSerializer.Serialize(_status)); }
+        catch (IOException) { }   // the game may be reading it; the next heartbeat tries again
+        catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Writes a whole file under a temporary name and swaps it in, so a reader never sees half of it.</summary>
+    private static void WriteAtomic(string path, string text)
+    {
+        string temp = path + ".tmp";
+        File.WriteAllText(temp, text);
+        File.Move(temp, path, overwrite: true);
     }
 
     /// <summary>Advises on one snapshot file and writes the results; problems are reported and never stop the watch.</summary>
@@ -78,14 +102,17 @@ public static class WatchCommand
         try
         {
             RunSnapshot snapshot = ReadWhenReady(path);
+            string file = Path.GetFileName(path);
             if (!DecisionAdvisor.Supports(snapshot))
             {
+                WriteStatus(adviceFolder, file, WatcherStatus.Unsupported, "Nothing to advise on this screen.");
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {Path.GetFileName(path)}: {snapshot.Decision}{(snapshot.EventId != null ? " " + snapshot.EventId : "")} - nothing to advise on.");
                 return false;
             }
 
             int rollouts = fixedRollouts ?? DecisionAdvisor.DefaultRollouts(snapshot);
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {Path.GetFileName(path)}: {snapshot.Decision}{(snapshot.EventId != null ? " " + snapshot.EventId : "")} - thinking...");
+            WriteStatus(adviceFolder, file, WatcherStatus.Thinking, "");
             var sw = Stopwatch.StartNew();
             AdviceReport report = DecisionAdvisor.Evaluate(data, snapshot, rollouts, seed);
             sw.Stop();
@@ -95,8 +122,9 @@ public static class WatchCommand
             string json = AdviceSerializer.Serialize(result);
             string name = Path.GetFileNameWithoutExtension(path);
             File.WriteAllText(Path.Combine(adviceFolder, name + ".json"), json);
-            File.WriteAllText(Path.Combine(adviceFolder, "latest.json"), json);
-            File.WriteAllText(Path.Combine(adviceFolder, "latest.txt"), text);
+            WriteAtomic(Path.Combine(adviceFolder, "latest.json"), json);
+            WriteAtomic(Path.Combine(adviceFolder, "latest.txt"), text);
+            WriteStatus(adviceFolder, file, WatcherStatus.Done, "");
 
             Console.WriteLine();
             Console.Write(text);
@@ -106,6 +134,7 @@ public static class WatchCommand
         catch (Exception e)
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {Path.GetFileName(path)}: could not advise ({e.GetType().Name}: {e.Message})");
+            WriteStatus(adviceFolder, Path.GetFileName(path), WatcherStatus.Error, e.Message);
             return false;
         }
     }

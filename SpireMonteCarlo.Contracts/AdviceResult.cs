@@ -45,6 +45,9 @@ public sealed class AdviceResult
 public sealed class AdviceOption
 {
     public string Label { get; set; } = "";
+
+    /// <summary>The label as a player would say it (card names instead of ids, "Elite (left)" instead of map columns), for displays.</summary>
+    public string Display { get; set; } = "";
     public bool IsBaseline { get; set; }
 
     /// <summary>Chance to survive the rest of the act, and average HP left at its end (a death counts as 0), in percent and points.</summary>
@@ -74,6 +77,21 @@ public sealed class AdviceOption
     public bool Clear { get; set; }
 }
 
+/// <summary>
+/// What the advisor app is doing, for a display in the game: written as advice\status.json when it starts and finishes a snapshot, and
+/// refreshed every few seconds while it waits (<see cref="UpdatedAt"/> is its heartbeat; a stale one means the app isn't running).
+/// </summary>
+public sealed class WatcherStatus
+{
+    public const string Thinking = "thinking", Done = "done", Unsupported = "unsupported", Error = "error", Idle = "idle";
+
+    /// <summary>The snapshot the state refers to (empty before the first one).</summary>
+    public string SnapshotFile { get; set; } = "";
+    public string State { get; set; } = Idle;
+    public string Message { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public static class AdviceSerializer
 {
     private static readonly JsonSerializerSettings Settings = new()
@@ -84,6 +102,11 @@ public static class AdviceSerializer
     };
 
     public static string Serialize(AdviceResult result) => JsonConvert.SerializeObject(result, Settings);
+
+    public static string Serialize(WatcherStatus status) => JsonConvert.SerializeObject(status, Settings);
+
+    public static WatcherStatus DeserializeStatus(string json) =>
+        JsonConvert.DeserializeObject<WatcherStatus>(json, Settings) ?? throw new JsonException("Status JSON was empty.");
 
     public static AdviceResult Deserialize(string json) =>
         JsonConvert.DeserializeObject<AdviceResult>(json, Settings) ?? throw new JsonException("Advice JSON was empty.");
