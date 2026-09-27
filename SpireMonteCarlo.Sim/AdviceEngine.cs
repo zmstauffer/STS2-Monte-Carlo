@@ -78,6 +78,9 @@ public sealed class AdviceReport
     public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
     public required IReadOnlyList<OptionReport> Options { get; init; }
     public int Rollouts { get; init; }
+    /// <summary>The futures it would have run; fewer were run (<see cref="Rollouts"/>) when the answer was settled early.</summary>
+    public int MaxRollouts { get; init; }
+    public bool StoppedEarly => Rollouts < MaxRollouts;
     /// <summary>There was only one option, so nothing was simulated.</summary>
     public bool OnlyOption { get; init; }
     public bool ExactPlan { get; init; }
@@ -96,6 +99,29 @@ public static class AdviceEngine
 
     /// <summary>The smallest gap (in points) reported as a real difference between two options.</summary>
     public const double MeaningfulPoints = 1.0;
+
+    /// <summary>Futures per batch between checks of whether the answer is settled.</summary>
+    public const int EarlyStopBatch = 400;
+
+    /// <summary>
+    /// Standard errors an option must trail the best by to stop being simulated before the full count. Stricter than the 2 used in
+    /// reports because the gap is looked at after every batch, and each look is another chance for noise to cross the line.
+    /// </summary>
+    public const double EarlyStopZ = 2.5;
+
+    public enum Verdict { Open, Behind, Tied }
+
+    /// <summary>
+    /// Whether more futures could change what the report says about an option trailing the best by <paramref name="points"/> (negative)
+    /// with standard error <paramref name="se"/>: Behind when it is clearly worse by a meaningful gap, Tied when the whole two-standard-error
+    /// range is within <see cref="MeaningfulPoints"/> of the best, otherwise Open.
+    /// </summary>
+    public static Verdict Settled(double points, double se)
+    {
+        if (-points > Math.Max(EarlyStopZ * se, MeaningfulPoints)) return Verdict.Behind;
+        if (Math.Abs(points) + 2 * se <= MeaningfulPoints) return Verdict.Tied;
+        return Verdict.Open;
+    }
 
     // How the end-of-Act-1 deck predicts surviving Act 2, fit by logistic regression on chained runs (sim calibrate-run --maps 400 --act2
     // at the calibrated HP scales, ~3900 Act 1 survivors): logit P = -6.99 + 5.93 x deck strength + 4.99 x share of HP carried in (after
@@ -212,6 +238,7 @@ public static class AdviceEngine
         for (int j = 0; j < options.Count; j++) results[j] = new RolloutResult[rollouts];
         int act0 = snapshot.Run.Act;
         double[] laterPoints = options.Select(o => LongTermPoints(data, snapshot, o.Start.Deck) + o.LaterPoints).ToArray();
+        double FutureValue(int j, RolloutResult r) => ValueOf(r, act0) + (r.Survived ? laterPoints[j] / 100 : 0);
 
         void RunFutures(int from, int to, IReadOnlyList<int> which) => Parallel.For(from, to, i =>
         {
@@ -222,25 +249,61 @@ public static class AdviceEngine
         // Options this situation already simulated (the rest site's upgrades, when the card-upgrade screen follows) are reused as they are.
         string situation = $"{seed}|{rollouts}|{SituationKey(snapshot)}";
         string[] keys = options.Select(o => StartKey(o.Start)).ToArray();
-        var fresh = new List<int>();
+        int[] count = new int[options.Count];   // futures each option has so far
+        var live = Enumerable.Range(0, options.Count).ToList();   // options still being simulated
         for (int j = 0; j < options.Count; j++)
-        {
-            if (reuse && CachedFutures(situation, keys[j]) is { } cached) results[j] = cached;
-            else fresh.Add(j);
-        }
+            if (reuse && CachedFutures(situation, keys[j]) is { } cached)
+            {
+                count[j] = Math.Min(cached.Length, rollouts);
+                Array.Copy(cached, results[j], count[j]);
+            }
 
-        // With many options (a shop's bundles), screen them all on a fifth of the futures first and give the full count only to the
-        // baseline and the best few; the rest are reported from the screening futures. A 24-option shop took over a minute before.
-        int screen = fresh.Count > ScreenAbove ? Math.Min(rollouts, Math.Max(100, rollouts / 5)) : rollouts;
-        if (fresh.Count > 0) RunFutures(0, screen, fresh);
-        if (screen < rollouts && fresh.Count > 0)
+        // Futures run in batches, and simulating stops once the answer is settled (see Settled): a clear winner or a clear tie shows
+        // after a few hundred futures, a close call gets the full count. Options clearly behind the best stop getting futures.
+        // With many options (a shop's bundles), the first batch is a screen: only the best ScreenKeep (and the baseline) go on.
+        // Batch ends fall on a fixed grid, so futures reused from the rest site line up with the card-upgrade screen's batches.
+        bool screening = count.Count(c => c == 0) > ScreenAbove;
+        int first = screening ? Math.Min(rollouts, Math.Max(100, rollouts / 5)) : Math.Min(rollouts, EarlyStopBatch);
+        int n = 0;
+        while (n < rollouts)
         {
-            double Mean(int j) => results[j].Take(screen).Average(r => ValueOf(r, act0) + (r.Survived ? laterPoints[j] / 100 : 0));
-            var kept = fresh.OrderByDescending(Mean).Take(ScreenKeep).ToList();
-            if (fresh.Contains(0) && !kept.Contains(0)) kept.Add(0);
-            RunFutures(screen, rollouts, kept);
-            foreach (int j in fresh.Except(kept)) results[j] = results[j].Take(screen).ToArray();
+            int next = n == 0 ? first : Math.Min(rollouts, n + EarlyStopBatch);
+            // (A reused option can be behind the others if the rest site stopped simulating it early; it catches up here.)
+            foreach (var group in live.Where(j => count[j] < next).GroupBy(j => count[j]).ToList())
+            {
+                RunFutures(group.Key, next, group.ToList());
+                foreach (int j in group) count[j] = next;
+            }
+            n = next;
+            if (n >= rollouts) break;
+
+            // Compare the options that have every future so far.
+            var current = Enumerable.Range(0, options.Count).Where(j => count[j] >= n).ToList();
+            double[] Values(int j) => results[j].Take(n).Select(r => FutureValue(j, r)).ToArray();
+            var values = current.ToDictionary(j => j, Values);
+            int best = current.MaxBy(j => values[j].Average());
+            if (screening && n == first)
+            {
+                var kept = live.OrderByDescending(j => values[j].Average()).Take(ScreenKeep).ToList();
+                if (live.Contains(0) && !kept.Contains(0)) kept.Add(0);
+                live = kept;
+                continue;
+            }
+            bool settled = true;
+            foreach (int j in current)
+            {
+                if (j == best) continue;
+                (double d, double se) = PairedDifference(values[j], values[best]);
+                switch (Settled(100 * d, 100 * se))
+                {
+                    case Verdict.Behind: live.Remove(j); break;
+                    case Verdict.Open: settled = false; break;
+                }
+            }
+            if (settled || live.Count == 0) break;
         }
+        for (int j = 0; j < options.Count; j++)
+            if (count[j] < rollouts) results[j] = results[j].Take(count[j]).ToArray();
         if (reuse) RememberFutures(situation, keys, results);
 
         double DeathRate(RolloutResult[] rs, string room) => rs.Count(r => r.DiedTo != null && RoomOf(data, r.DiedTo) == room) / (double)rs.Length;
@@ -258,7 +321,9 @@ public static class AdviceEngine
         int act = act0;
         double[] longTerm = laterPoints;
         double[][] allValues = results.Select((rs, j) => rs.Select(r => ValueOf(r, act) + (r.Survived ? longTerm[j] / 100 : 0)).ToArray()).ToArray();
-        int bestIndex = Enumerable.Range(0, options.Count).MaxBy(j => allValues[j].Average());
+        // The best is one of the options that ran every future (one dropped early as clearly behind can't take it on fewer futures).
+        int most = results.Max(r => r.Length);
+        int bestIndex = Enumerable.Range(0, options.Count).Where(j => results[j].Length == most).MaxBy(j => allValues[j].Average());
         double[] skipValues = allValues[0];
 
         var reports = new List<OptionReport>();
@@ -302,7 +367,8 @@ public static class AdviceEngine
         {
             Decision = snapshot.Decision,
             Options = reports.OrderByDescending(r => r.Value).ToList(),
-            Rollouts = rollouts,
+            Rollouts = results.Max(r => r.Length),
+            MaxRollouts = rollouts,
             ExactPlan = rollout.HasExactPlan,
             BaselineLabel = options[0].Label,
             Notes = (notes ?? Array.Empty<string>()).Concat(ActNotes(snapshot.Run.Act)).ToList(),

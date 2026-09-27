@@ -71,6 +71,8 @@ public class OverlayManager
 	private bool _frameHooked;
 	private bool _hotkeyWasDown;   // wrapped labels settle their height a frame or two late, so the panel is re-fitted for a few frames
 	private int _dots;
+	// When the current decision screen appeared, for the "Thinking... 12s" timer.
+	private DateTime _thinkingSince = DateTime.Now;
 
 	// Files the app writes, re-read only when they change.
 	private DateTime _adviceStamp, _statusStamp;
@@ -168,7 +170,7 @@ public class OverlayManager
 		{
 			_dotTimer = 0;
 			_dots = (_dots + 1) % 3;
-			_statusLabel.Text = "Thinking" + new string('.', _dots + 1);
+			_statusLabel.Text = ThinkingText();
 		}
 	}
 
@@ -179,6 +181,7 @@ public class OverlayManager
 		if (file != null && file != _snapshotFile)
 		{
 			_snapshotFile = file;
+			_thinkingSince = DateTime.Now;
 			_decided = false;
 			_renderedFor = null;
 			_inCombat = false;
@@ -270,13 +273,20 @@ public class OverlayManager
 				break;
 			case PanelState.Thinking:
 				_dots = 2;
-				_statusLabel.Text = "Thinking...";
+				_statusLabel.Text = ThinkingText();
 				break;
 			default:
 				_statusLabel.Text = _statusText;
 				break;
 		}
 		FitToContent();
+	}
+
+	private string ThinkingText()
+	{
+		int seconds = (int)(DateTime.Now - _thinkingSince).TotalSeconds;
+		// The dots cycle; padding keeps the timer from jumping sideways as they do.
+		return ("Thinking" + new string('.', _dots + 1)).PadRight(11) + $" {seconds}s";
 	}
 
 	private void ShowAdvice(AdviceResult advice)

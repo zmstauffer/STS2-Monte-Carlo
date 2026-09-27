@@ -35,6 +35,15 @@ public class AdviceDisplayTests
         Assert.Equal("Skip", names["Skip"]);
     }
 
+    [Theory]
+    [InlineData(-10.8, 2.0, AdviceEngine.Verdict.Behind)]   // a big gap after the first batch
+    [InlineData(-2.4, 1.6, AdviceEngine.Verdict.Open)]      // a close call: keep simulating
+    [InlineData(-0.8, 0.2, AdviceEngine.Verdict.Open)]      // under a point behind but maybe a point: not yet a tie
+    [InlineData(-0.1, 0.2, AdviceEngine.Verdict.Tied)]      // near-identical futures (an early Act 1 card)
+    [InlineData(-0.9, 0.1, AdviceEngine.Verdict.Open)]      // clearly behind, but by less than a meaningful point
+    public void SimulatingStopsOnlyWhenMoreFuturesCouldNotChangeTheReport(double points, double se, AdviceEngine.Verdict expected) =>
+        Assert.Equal(expected, AdviceEngine.Settled(points, se));
+
     [Fact]
     public void TheWatcherStatusRoundTripsInSnakeCase()
     {

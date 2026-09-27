@@ -55,7 +55,8 @@ public static class AdviceFormatter
             return sb.ToString();
         }
         bool test = report.Options.Any(o => !double.IsNaN(o.ProbeHpLost));
-        sb.AppendLine($"{rollouts} simulated futures per option ({seconds:F1}s), to the end of act {snapshot.Run.Act}{(test ? ", then a deck test (3 Act 2 elites and a boss, each from full HP)" : "")}.");
+        string futures = report.StoppedEarly ? $"{report.Rollouts} simulated futures per option (stopped early, of up to {rollouts}, once the answer was clear{(report.Options.Any(o => o.Rollouts < report.Rollouts) ? "; options clearly behind stopped sooner" : "")})" : $"{rollouts} simulated futures per option";
+        sb.AppendLine($"{futures} ({seconds:F1}s), to the end of act {snapshot.Run.Act}{(test ? ", then a deck test (3 Act 2 elites and a boss, each from full HP)" : "")}.");
         sb.AppendLine(report.ExactPlan ? "Using this run's actual upcoming encounters." : "This snapshot has no encounter plan, so upcoming fights are sampled (less precise).");
         sb.AppendLine();
         sb.AppendLine($"Suggestion: {Suggestion(report)}");
@@ -140,7 +141,7 @@ public static class AdviceFormatter
         Decision = snapshot.Decision,
         EventId = snapshot.EventId,
         CreatedAt = DateTimeOffset.Now,
-        Rollouts = rollouts,
+        Rollouts = report.OnlyOption ? 0 : report.Rollouts,
         Seconds = Math.Round(seconds, 1),
         Baseline = report.BaselineLabel,
         Best = report.Options[0].Label,
