@@ -16,6 +16,8 @@ namespace SpireMonteCarlo.UI;
 /// app writes (advice\latest.json and advice\status.json); all the thinking happens in the app. The game hooks still call the Show*
 /// methods, which now only tell the panel which screen is up (the card-reward hooks read <see cref="CurrentScreen"/> to skip screens
 /// that reuse the card-reward view). Drag the title to move it, double-click it to collapse, F7 (or Alt+H, or `) hides it.
+/// The mod is built without Godot's source generators, so a Node subclass of ours never gets _Process or input callbacks (Godot
+/// only calls them on registered scripts): the panel runs from the SceneTree's ProcessFrame signal and polls the hotkeys there.
 /// </summary>
 public class OverlayManager
 {
@@ -65,7 +67,9 @@ public class OverlayManager
 	private string _renderedFor;
 	private string _statusText = "";
 	private double _pollTimer, _dotTimer;
-	private int _fitFrames;   // wrapped labels settle their height a frame or two late, so the panel is re-fitted for a few frames
+	private int _fitFrames;
+	private bool _frameHooked;
+	private bool _hotkeyWasDown;   // wrapped labels settle their height a frame or two late, so the panel is re-fitted for a few frames
 	private int _dots;
 
 	// Files the app writes, re-read only when they change.
@@ -123,6 +127,31 @@ public class OverlayManager
 	private void SetScreen(string screen) => _currentScreen = screen;
 
 	// ---- polling (called every frame by OverlayInputHandler) ------------------------------------------------------
+
+	private ulong _lastFrameMs;
+
+	private void OnFrame()
+	{
+		ulong now = Time.GetTicksMsec();
+		double delta = _lastFrameMs == 0 ? 0 : (now - _lastFrameMs) / 1000.0;
+		_lastFrameMs = now;
+		try
+		{
+			PollHotkeys();
+			Tick(delta);
+		}
+		catch (Exception ex) { Plugin.Log("Panel frame error: " + ex.Message); }
+	}
+
+	/// <summary>F7, Alt+H or ` (no modifiers) hides and shows the panel; acted on when the key goes down.</summary>
+	private void PollHotkeys()
+	{
+		bool alt = Input.IsKeyPressed(Key.Alt), ctrl = Input.IsKeyPressed(Key.Ctrl), shift = Input.IsKeyPressed(Key.Shift);
+		bool down = Input.IsPhysicalKeyPressed(Key.F7) || (alt && Input.IsPhysicalKeyPressed(Key.H))
+			|| (!alt && !ctrl && !shift && Input.IsPhysicalKeyPressed(Key.Quoteleft));
+		if (down && !_hotkeyWasDown) ToggleVisible();
+		_hotkeyWasDown = down;
+	}
 
 	public void Tick(double delta)
 	{
@@ -428,8 +457,12 @@ public class OverlayManager
 		column.AddChild(_body);
 
 		_layer.AddChild(_panel);
-		_layer.AddChild(new OverlayInputHandler(this));
 		tree.Root.CallDeferred(Node.MethodName.AddChild, _layer);
+		if (!_frameHooked)
+		{
+			tree.ProcessFrame += OnFrame;
+			_frameHooked = true;
+		}
 		ApplyVisibility();
 		Plugin.Log("Spire MC panel attached to the scene tree.");
 		return true;
@@ -486,14 +519,5 @@ public class OverlayManager
 	{
 		_userHidden = !_userHidden;
 		ApplyVisibility();
-	}
-
-	public void HandleInput(InputEvent ev)
-	{
-		if (ev is not InputEventKey { Pressed: true, Echo: false } key) return;
-		bool f7 = key.Keycode == Key.F7 || key.PhysicalKeycode == Key.F7;
-		bool altH = key.AltPressed && (key.Keycode == Key.H || key.PhysicalKeycode == Key.H);
-		bool backtick = !key.AltPressed && !key.CtrlPressed && !key.ShiftPressed && (key.Keycode == Key.Quoteleft || key.PhysicalKeycode == Key.Quoteleft);
-		if (f7 || altH || backtick) ToggleVisible();
 	}
 }
